@@ -1,0 +1,42 @@
+# 站点基础配置
+# 上线前把 baseURL 改成你的真实域名（结尾带 /）
+baseURL = "https://example.com/"
+locale = "zh-CN"
+defaultContentLanguage = "zh"
+title = "海边小屋"
+enableRobotsTXT = true
+hasCJKLanguage = true
+summaryLength = 70
+
+# 每页文章数（Hugo 0.128+ 的写法，旧版是 paginate = 10）
+[pagination]
+  pagerSize = 10
+
+[params]
+  author = "你的名字"
+  description = "记录学习、折腾和一点点生活。"
+  since = 2026
+  footer = "用 Hugo 构建，跑在自己的 VPS 上。"
+
+[markup]
+  [markup.highlight]
+    noClasses = true      # 代码高亮样式直接内联，省一份 CSS
+    lineNos = false
+    tabWidth = 4
+  [markup.goldmark.renderer]
+    unsafe = true         # 允许在 Markdown 里写原始 HTML（自己写的东西，风险可控）
+
+[[menu.main]]
+  name = "文章"
+  pageRef = "/posts"
+  weight = 10
+
+[[menu.main]]
+  name = "标签"
+  pageRef = "/tags"
+  weight = 20
+
+[[menu.main]]
+  name = "关于"
+  pageRef = "/about"
+  weight = 30

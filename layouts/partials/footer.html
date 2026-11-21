@@ -1,0 +1,8 @@
+<footer class="site-footer">
+  <div class="container">
+    <p>
+      © {{ site.Params.since }}–{{ now.Year }} {{ site.Params.author }}
+      {{ with site.Params.footer }}· {{ . }}{{ end }}
+    </p>
+  </div>
+</footer>
