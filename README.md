@@ -2,7 +2,7 @@
 
 这套东西的目标：**在本地写 Markdown，一条命令发到 VPS，网站几秒钟更新**。服务器上不跑 PHP、不跑数据库，1 核 1G 绰绰有余。
 
-> 当前部署实例：**https://aiqivy.com** —— Vultr 203.0.113.10，CentOS Stream 10 + nginx 1.26.3 + Let's Encrypt（certbot-renew.timer 自动续期）。
+> 当前部署实例：**https://aiqivy.com** —— Vultr 一台 1C1G 机器，CentOS Stream 10 + nginx 1.26.3 + Let's Encrypt（certbot-renew.timer 自动续期）。
 
 ```
 本地 Windows                          服务器 (Ubuntu / CentOS / RHEL 系)
@@ -360,7 +360,7 @@ tail -n 1 /var/log/nginx/access.log
 
 ### 7. 源站只接受 Cloudflare 的流量
 
-光还原 IP 还不够：任何人只要知道 `203.0.113.10`，就能绕过 Cloudflare 直连源站，缓存和防护全部失效。所以把 80/443 也收进白名单。
+光还原 IP 还不够：任何人只要知道源站真实 IP，就能绕过 Cloudflare 直连源站，缓存和防护全部失效。所以把 80/443 也收进白名单。
 
 做法不是一条条写 44 条 rich rule，而是用一个**专门放 CF 网段的 zone**：firewalld 按来源把流量分派到 zone，CF 网段的流量进 `cfweb`（只开 80/443），其余流量落到 `public`（已删掉 http/https）→ 默认 target 是 `default`（拒绝），直接被丢。
 
