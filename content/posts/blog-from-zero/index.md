@@ -10,7 +10,7 @@ description: "买域名、配 GitHub、写 Hugo、挂 Nginx、签证书、套 Cl
 整套东西拆开看只有四块积木，任何一块都能单独换掉。下面按我第一次搭站的顺序写，命令都是能直接复制跑的，坑也都是真踩过的。
 
 <figure>
-  <img src="images/01-dns.gif" alt="DNS 解析链路：浏览器 → Cloudflare DNS → 源站服务器" width="880" height="440" loading="lazy">
+  <img src="images/01-dns.gif?v=2" alt="DNS 解析链路：浏览器 → Cloudflare DNS → 源站服务器" width="880" height="440" loading="lazy">
   <figcaption>图 1：一次典型的 DNS 查询。域名只是门牌号，真正干活的是后面那台机器。</figcaption>
 </figure>
 
@@ -84,7 +84,7 @@ ssh -T git@github.com
 ```
 
 <figure>
-  <img src="images/02-git.gif" alt="本地提交推送到 GitHub 的过程" width="880" height="440" loading="lazy">
+  <img src="images/02-git.gif?v=2" alt="本地提交推送到 GitHub 的过程" width="880" height="440" loading="lazy">
   <figcaption>图 2：本地三个提交推送到远端。有了 Git，改坏了随时能回到上一版。</figcaption>
 </figure>
 
@@ -210,7 +210,7 @@ ls -1dt /var/www/blog/releases/* | tail -n +6 | xargs rm -rf
 注意 `[ -f ...index.html ] || exit 1` 这一行：**先验证再切换**。宁可这次发布失败，也不要让线上变成一个只有 404 的空目录。
 
 <figure>
-  <img src="images/03-deploy.gif" alt="终端里执行部署脚本的全过程" width="880" height="440" loading="lazy">
+  <img src="images/03-deploy.gif?v=2" alt="终端里执行部署脚本的全过程" width="880" height="440" loading="lazy">
   <figcaption>图 3：从敲下命令到线上更新，十几秒。构建在本地，服务器只负责接收和切换。</figcaption>
 </figure>
 

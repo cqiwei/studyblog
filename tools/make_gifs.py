@@ -1,4 +1,4 @@
-﻿"""生成文章配图用的动图（GIF）。
+"""生成文章配图用的动图（GIF）。
 
 设计约束：
 - 纯 Pillow / numpy 绘制，不依赖浏览器截图
@@ -327,7 +327,7 @@ def gif_deploy(frames=56, delay=115):
             d.ellipse([x0 * S, 110 * S, (x0 + 8) * S, 118 * S], fill=c)
         d.text((186 * S, 107 * S), "deploy  —  zsh", font=f_mono_s, fill=MUTED)
 
-        y = 152
+        y = 146
         for start, end, kind, text in schedule:
             if t < start:
                 break
@@ -342,7 +342,7 @@ def gif_deploy(frames=56, delay=115):
                         [100 * S + tw + 2 * S, y * S + 2 * S, 100 * S + tw + 9 * S, y * S + 15 * S],
                         fill=(150, 200, 255),
                     )
-            y += 29
+            y += 28
 
         last = schedule[-1]
         if t > last[1] - 0.01:
@@ -358,10 +358,54 @@ def gif_deploy(frames=56, delay=115):
     save(out, "03-deploy.gif", delay)
 
 
+@lru_cache(maxsize=1)
+def palette_image() -> Image.Image:
+    """固定调色板：背景渐变采样 + 主题色。
+
+    GIF 只有 256 色，用逐帧自适应调色板时，几个像素的小色块（终端红绿灯）
+    会被挤掉、退化成灰色；固定调色板能保证关键颜色一定在表里，而且所有帧
+    共用一张表，文件更小。
+    """
+    bg = background().convert("RGB")
+    cols: list[tuple[int, int, int]] = []
+
+    # 背景渐变两侧各采样 96 个点，保证没有明显色带
+    for xf, n in ((0.22, 96), (0.72, 96)):
+        x = int(bg.width * xf)
+        for i in range(n):
+            y = int((i + 0.5) * bg.height / n)
+            cols.append(bg.getpixel((x, y)))
+
+    keys = [
+        (255, 95, 87), (254, 188, 46), (40, 200, 64),      # 终端红绿灯
+        (59, 130, 246), (139, 92, 246), (45, 212, 191),    # 主题蓝紫青
+        (232, 238, 247), (190, 199, 214), (139, 152, 171), (86, 97, 114),
+        (12, 17, 26), (17, 24, 36), (15, 22, 34), (19, 29, 43), (20, 30, 44),
+        (170, 200, 255), (150, 200, 255), (110, 231, 183), (148, 158, 174),
+        (255, 255, 255),
+    ]
+    cols.extend(keys)
+
+    for c in [(59, 130, 246), (139, 92, 246), (45, 212, 191), (232, 238, 247)]:
+        for t in (0.2, 0.4, 0.6, 0.8):
+            cols.append(mix((12, 17, 26), c, t))
+
+    cols = cols[:256]
+    while len(cols) < 256:
+        cols.append((0, 0, 0))
+
+    flat: list[int] = []
+    for c in cols:
+        flat.extend(c)
+    p = Image.new("P", (1, 1))
+    p.putpalette(flat)
+    return p
+
+
 def save(frames, name, delay):
     os.makedirs(OUT_DIR, exist_ok=True)
     path = os.path.join(OUT_DIR, name)
-    pal = [f.convert("P", palette=Image.ADAPTIVE, colors=64, dither=Image.FLOYDSTEINBERG) for f in frames]
+    pal = [f.quantize(palette=palette_image(), dither=Image.NONE) for f in frames]
     pal[0].save(
         path,
         save_all=True,
@@ -369,11 +413,14 @@ def save(frames, name, delay):
         duration=delay,
         loop=0,
         optimize=True,
-        disposal=2,
+        disposal=1,
     )
     size = os.path.getsize(path) / 1024
     print(f"{name:16} {len(frames):3d} frames  {size:7.1f} KB")
-    preview_dir = os.path.join(os.path.dirname(OUT_DIR), "..", "..", ".deploy", "previews")\n    os.makedirs(preview_dir, exist_ok=True)\n    frames[len(frames) // 2].save(os.path.join(preview_dir, name.replace(".gif", ".png")))
+
+    preview_dir = os.path.join(os.path.dirname(OUT_DIR), "..", "..", ".deploy", "previews")
+    os.makedirs(preview_dir, exist_ok=True)
+    frames[len(frames) // 2].save(os.path.join(preview_dir, name.replace(".gif", ".png")))
 
 
 if __name__ == "__main__":

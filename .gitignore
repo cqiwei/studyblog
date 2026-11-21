@@ -4,3 +4,5 @@ resources/
 .tools/
 .deploy/
 .ssh_known_hosts
+__pycache__/
+*.pyc
