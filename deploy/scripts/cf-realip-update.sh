@@ -58,3 +58,63 @@ else
     fi
     exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# Optional: keep the origin reachable only from Cloudflare (firewalld).
+#
+# All CF ranges become *sources* of a dedicated "cfweb" zone that opens only
+# 80/443. Once public no longer lists http/https, everything else is dropped
+# by the zone's default target. Sync is best effort: a firewall problem must
+# never leave the script (and thus the timer) failing.
+# ---------------------------------------------------------------------------
+sync_firewall() {
+    command -v firewall-cmd >/dev/null 2>&1 || return 0
+    systemctl is-active --quiet firewalld || return 0
+
+    local zone=cfweb
+
+    if ! firewall-cmd --permanent --zone="$zone" --list-all >/dev/null 2>&1; then
+        firewall-cmd --permanent --new-zone="$zone" >/dev/null || return 0
+        firewall-cmd --permanent --zone="$zone" --add-port=80/tcp  >/dev/null || return 0
+        firewall-cmd --permanent --zone="$zone" --add-port=443/tcp >/dev/null || return 0
+        echo "firewall: created zone $zone (80/443 for Cloudflare only)"
+    fi
+
+    local desired current ip
+    desired="$(printf '%s\n' "$ALL")"
+    # --list-sources prints everything on one space-separated line; split it so
+    # the diff below compares single CIDRs (grep -qx needs one per line).
+    current="$(firewall-cmd --permanent --zone="$zone" --list-sources 2>/dev/null \
+               | tr ' ' '\n' | sed '/^$/d' || true)"
+
+    # add what is missing (grep -F: CIDRs are literal, not regex)
+    while IFS= read -r ip; do
+        [ -n "$ip" ] || continue
+        if ! printf '%s\n' "$current" | grep -Fqx "$ip"; then
+            firewall-cmd --permanent --zone="$zone" --add-source="$ip" >/dev/null
+        fi
+    done <<< "$desired"
+
+    # drop ranges Cloudflare no longer publishes
+    while IFS= read -r ip; do
+        [ -n "$ip" ] || continue
+        if ! printf '%s\n' "$desired" | grep -Fqx "$ip"; then
+            firewall-cmd --permanent --zone="$zone" --remove-source="$ip" >/dev/null
+        fi
+    done <<< "$current"
+
+    firewall-cmd --reload >/dev/null
+    echo "firewall: $zone synced ($COUNT ranges, 80/443)"
+}
+
+if ! sync_firewall; then
+    echo "WARN: firewall sync failed (nginx part is fine)"
+fi
+
+# Friendly reminder rather than silent exposure.
+if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    if firewall-cmd --zone=public --query-service=http >/dev/null 2>&1; then
+        echo "WARN: public zone still opens http/https - origin is reachable directly." \
+             "Run: firewall-cmd --permanent --zone=public --remove-service=http --remove-service=https && firewall-cmd --reload"
+    fi
+fi

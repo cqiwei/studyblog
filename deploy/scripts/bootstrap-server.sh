@@ -100,6 +100,9 @@ elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 
   firewall-cmd --permanent --add-service=http --add-service=https >/dev/null
   firewall-cmd --reload >/dev/null
   firewall-cmd --list-services
+  # If the site will sit behind Cloudflare (orange cloud), tighten later:
+  # install cf-realip-update.sh + its timer, then this opens only CF's ranges.
+  echo "    note: behind Cloudflare? see README section 7 (cfweb zone)."
 else
   echo "    no active ufw/firewalld found, make sure 80/443 are reachable"
 fi

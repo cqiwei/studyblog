@@ -313,7 +313,7 @@ DNS 里把两条 A 记录的云朵点灰即可，秒级生效。SSL 模式保持
 
 ### 5. 开了云朵之后的副作用
 
-- **访问日志里全是 Cloudflare 的 IP**。要还原真实 IP，需要 `ngx_http_realip_module` + 定期同步 CF 的网段（`set_real_ip_from` / `real_ip_header CF-Connecting-IP`）。
+- **访问日志里全是 Cloudflare 的 IP**。已用 `ngx_http_realip_module` + 定期同步 CF 网段解决，见下面第 6 节。`log_format` 里原来尾部还钉了一个 `$http_x_forwarded_for`，会让同一个 IP 在一行里出现两次，已去掉（`/etc/nginx/nginx.conf:18-20`）。
 - **证书续期仍能过**：CF 会把 `/.well-known/acme-challenge/` 回源到 80，源站 301 到 443 后 certbot 的 `--nginx` 仍能应答。真出问题就临时把云朵点灰再续。
 
 ### 6. 还原真实访客 IP（real_ip）
@@ -345,9 +345,45 @@ ssh root@服务器 "chmod 755 /usr/local/bin/cf-realip-update.sh && \
 ```bash
 curl -s "https://aiqivy.com/?probe=$RANDOM" >/dev/null
 tail -n 1 /var/log/nginx/access.log
+# 152.163.13.199 - - [21/Nov/2026:02:59:52 +0000] "GET /?probe=12345 HTTP/1.1" 200 1026 "-" "Mozilla/5.0 ..."
 ```
 
-⚠️ `real_ip` 只改变 nginx **认为**的对端地址。如果你还想让源站只接受 CF 的流量（防止有人拿 IP 直连绕过缓存），那要在 firewalld 里做白名单，属于另一件事，可做可不做。
+### 7. 源站只接受 Cloudflare 的流量
+
+光还原 IP 还不够：任何人只要知道 `203.0.113.10`，就能绕过 Cloudflare 直连源站，缓存和防护全部失效。所以把 80/443 也收进白名单。
+
+做法不是一条条写 44 条 rich rule，而是用一个**专门放 CF 网段的 zone**：firewalld 按来源把流量分派到 zone，CF 网段的流量进 `cfweb`（只开 80/443），其余流量落到 `public`（已删掉 http/https）→ 默认 target 是 `default`（拒绝），直接被丢。
+
+```bash
+# 一次性：把 http/https 从 public 摘掉（脚本只负责维护 cfweb 的网段）
+firewall-cmd --permanent --zone=public --remove-service=http --remove-service=https
+firewall-cmd --reload
+```
+
+`cf-realip-update.sh` 在写完 nginx 配置后会自动同步 `cfweb` 的 sources（新增/删除都按当前官方列表对齐），zone 不存在时会自己建。想看效果：
+
+```bash
+firewall-cmd --zone=cfweb --list-all        # sources 22 段，ports 80/tcp 443/tcp
+firewall-cmd --zone=public --list-services  # 应该只剩 cockpit dhcpv6-client ssh
+```
+
+验证（从你自己电脑）：直连 IP 应该超时，走域名正常。
+
+```powershell
+Test-NetConnection 203.0.113.10 -Port 443   # TcpTestSucceeded : False（超时）
+Invoke-WebRequest https://aiqivy.com -UseBasicParsing   # 200
+```
+
+⚠️ **副作用**：直连源站调试、或者临时点灰云朵都会连不上。要临时放行自己的 IP：
+
+```bash
+firewall-cmd --zone=public --add-rich-rule='rule family="ipv4" source address="你的公网IP/32" port port="443" protocol="tcp" accept'
+firewall-cmd --zone=public --remove-rich-rule='rule family="ipv4" source address="你的公网IP/32" port port="443" protocol="tcp" accept'
+```
+
+（`public` 里加富规则是临时的，重启 reload 后仍在 permanent 里——不加 `--permanent` 则 `--reload` 后消失。）
+
+⚠️ 证书续期不受影响：Let's Encrypt 的 HTTP-01 校验请求本身就是从 CF 边缘回源的，落在 `cfweb` 白名单内。
 
 ---
 
