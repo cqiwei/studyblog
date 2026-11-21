@@ -225,7 +225,7 @@ def gif_dns(frames=40, delay=100):
         if t > 0.72:
             a = ease_out((t - 0.72) / 0.16)
             caption(
-                d, "A 记录 → 104.21.3.190   ·   源站只放行 Cloudflare 网段",
+                d, "A 记录返回 Cloudflare 边缘 IP   ·   源站只放行 Cloudflare 网段",
                 440, 388, font_size=12, color=(150, 200, 255, int(255 * a)), pad=22,
             )
 
