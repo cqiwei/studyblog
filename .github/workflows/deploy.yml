@@ -1,8 +1,12 @@
 name: deploy
 
+# 首次推送时仓库里还没有 SSH_HOST / SSH_USER / SSH_PORT / SSH_KEY 四个 secret，
+# 若直接开 push 触发，每次提交都会跑出一次失败。因此先只保留手动触发：
+# 在 GitHub 仓库 Settings → Secrets and variables → Actions 配好这四个 secret 之后，
+# 再把下面的 push 触发打开。
 on:
-  push:
-    branches: [main]
+  # push:
+  #   branches: [main]
   workflow_dispatch:
 
 concurrency:
