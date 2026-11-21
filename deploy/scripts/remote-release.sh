@@ -45,7 +45,7 @@ fi
 
 ln -sfn "$DEST" "$ROOT/current"
 
-nginx -t
+nginx -t 2>&1
 systemctl reload nginx
 
 rm -f "$ARCHIVE"

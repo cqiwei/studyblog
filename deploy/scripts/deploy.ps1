@@ -76,8 +76,14 @@ if ($LASTEXITCODE -ne 0) { Fail "scp failed" }
 # --- 5. activate ----------------------------------------------------------
 Write-Host "==> activating" -ForegroundColor Cyan
 $remoteScript = Get-Content (Join-Path $PSScriptRoot "remote-release.sh") -Raw
+# 远端会把 nginx -t 的信息写到 stderr，而 EAP=Stop 会把原生命令的 stderr 当成异常，
+# 所以这一段临时放开，只看退出码。
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 $remoteScript | ssh @sshOpts $Target "bash -s -- $ts $remoteTmp"
-if ($LASTEXITCODE -ne 0) { Fail "remote activation failed (site left on the previous release)" }
+$remoteCode = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+if ($remoteCode -ne 0) { Fail "remote activation failed (site left on the previous release)" }
 
 Remove-Item $archive -Force
 

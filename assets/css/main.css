@@ -576,6 +576,15 @@ a:hover { text-decoration: none; }
   box-shadow: var(--shadow);
 }
 
+.content figure { margin: 2.2em 0; }
+.content figure img { margin: 0 auto 0.9em; }
+.content figcaption {
+  text-align: center;
+  font-size: 0.86rem;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+
 .content blockquote {
   position: relative;
   margin: 1.8em 0;
