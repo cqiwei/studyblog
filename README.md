@@ -2,6 +2,8 @@
 
 这套东西的目标：**在本地写 Markdown，一条命令发到 VPS，网站几秒钟更新**。服务器上不跑 PHP、不跑数据库，1 核 1G 绰绰有余。
 
+> 当前部署实例：**https://aiqivy.com** —— Vultr 203.0.113.10，CentOS Stream 10 + nginx 1.26.3 + Let's Encrypt（certbot-renew.timer 自动续期）。
+
 ```
 本地 Windows                          服务器 (Ubuntu / CentOS / RHEL 系)
 ┌─────────────────┐   tar.gz + ssh   ┌──────────────────────────────┐
