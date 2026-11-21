@@ -24,6 +24,42 @@
       {{ .Content }}
     </div>
 
+    {{ if eq .Section "posts" }}
+    <p class="post-views" data-path="{{ .RelPermalink }}" hidden>
+      <span class="views-num">—</span>
+      <span class="views-label">次阅读</span>
+    </p>
+    <script>
+      (function () {
+        var el = document.querySelector('.post-views');
+        if (!el || !window.fetch || !window.sessionStorage) return;
+        var path = el.dataset.path;
+        var key = 'pv:' + path;
+        function render(d) {
+          if (!d || typeof d.pv !== 'number') return;
+          el.querySelector('.views-num').textContent = d.pv;
+          el.querySelector('.views-label').textContent = '次阅读 · ' + d.uv + ' 位访客';
+          el.hidden = false;
+        }
+        function read() {
+          return fetch('/api/views?path=' + encodeURIComponent(path))
+            .then(function (r) { return r.json(); }).then(render).catch(function () {});
+        }
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, '1');
+          fetch('/api/views', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path }),
+            keepalive: true
+          }).then(function (r) { return r.json(); }).then(render).catch(read);
+        } else {
+          read();
+        }
+      })();
+    </script>
+    {{ end }}
+
     <nav class="post-nav">
       {{ with .PrevInSection }}<a class="prev" href="{{ .RelPermalink }}">← {{ .Title }}</a>{{ end }}
       {{ with .NextInSection }}<a class="next" href="{{ .RelPermalink }}">{{ .Title }} →</a>{{ end }}

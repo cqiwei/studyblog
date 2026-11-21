@@ -397,6 +397,45 @@ firewall-cmd --zone=public --remove-rich-rule='rule family="ipv4" source address
 
 ---
 
+## 访问统计（阅读数 + 报表）
+
+两套东西，互相独立，装一次就行：
+
+- **文章页的阅读数**：`deploy/stats/blog-views.py`，Python 标准库写的计数服务，只监听 `127.0.0.1:8099`，SQLite 存在 `/var/lib/blogviews/views.db`。nginx 把 `POST/GET /api/views` 反代给它。
+- **站点访问报表**：goaccess 每 5 分钟把 nginx 日志汇总成一张静态 HTML，放在 `/var/www/blog-stats/index.html`，由 `/stats/` 提供，带 Basic Auth。
+
+安装（源码先传上去）：
+
+```bash
+# 本地
+scp -r deploy/stats root@服务器IP:/tmp/blog-stats-src
+
+# 服务器
+bash /tmp/blog-stats-src/install-stats.sh /tmp/blog-stats-src 你的域名
+```
+
+脚本会装 `goaccess` / `httpd-tools`、建 `blogviews` 用户、写 systemd 单元、生成 `/stats/` 的账号密码并打印出来（没给 `STATS_PASS` 就随机生成）。
+
+```bash
+# 想指定账号密码
+STATS_USER=me STATS_PASS='一串强密码' bash install-stats.sh
+
+# 验证
+curl -s https://你的域名/api/views?path=/posts/hello-world/     # {"pv":0,"uv":0}
+curl -s -o /dev/null -w '%{http_code}\n' https://你的域名/stats/ # 401（没登录）
+```
+
+计数口径：`pv` 每访问一次 +1（同一会话刷新不算，靠 `sessionStorage` 去重）；`uv` 同一天、同 IP、同一篇只算一次。UA 里带 `bot/spider/curl/...` 的请求不计数。
+
+几个要点：
+
+- 计数器**只接受** `^/posts/xxx/$` 这种路径，别的直接 400，防止往库里塞脏数据。
+- `/api/views` 全部 `Cache-Control: no-store`，Cloudflare 也不会缓存（响应里 `cf-cache-status: DYNAMIC`）。
+- 报表的身份验证靠 `/etc/nginx/.htpasswd`；`install-stats.sh` 是幂等的，重跑会重新生成密码。
+- 日志轮转后 goaccess 靠 `--persist --restore` 的数据库保住历史，不会因为日志删了就清零。
+
+---
+
 ## 回滚
 
 ```bash

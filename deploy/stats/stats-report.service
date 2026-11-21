@@ -1,0 +1,8 @@
+[Unit]
+Description=Build goaccess HTML report from nginx logs
+After=nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/stats-report.sh
+Nice=10

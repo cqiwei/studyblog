@@ -665,6 +665,28 @@ a:hover { text-decoration: none; }
 .content tr:last-child td { border-bottom: none; }
 .content tbody tr:hover { background: var(--card); }
 
+/* ---------- 阅读数 ---------- */
+.post-views {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 44px 0 0;
+  padding: 7px 15px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  backdrop-filter: blur(8px);
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.post-views[hidden] { display: none; }
+.post-views .views-num {
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  color: var(--fg);
+}
+
 /* ---------- 上下篇 ---------- */
 .post-nav {
   display: grid;
