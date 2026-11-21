@@ -1,6 +1,6 @@
 # 站点基础配置
 # 上线前把 baseURL 改成你的真实域名（结尾带 /）
-baseURL = "https://example.com/"
+baseURL = "https://aiqivy.com/"
 locale = "zh-CN"
 defaultContentLanguage = "zh"
 title = "海边小屋"

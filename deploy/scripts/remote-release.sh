@@ -25,7 +25,16 @@ rm -rf "$DEST"
 mkdir -p "$DEST"
 
 tar -xzf "$ARCHIVE" -C "$DEST"
-chown -R www-data:www-data "$DEST"
+
+# Debian 用 www-data，RHEL 系用 nginx；都没有就保持 root（nginx 主进程是 root 也能读）
+if id www-data >/dev/null 2>&1; then
+  WEB_USER=www-data
+elif id nginx >/dev/null 2>&1; then
+  WEB_USER=nginx
+else
+  WEB_USER=root
+fi
+chown -R "$WEB_USER:$WEB_USER" "$DEST"
 
 # sanity check: a release without index.html would blank the site
 if [[ ! -f "$DEST/index.html" ]]; then

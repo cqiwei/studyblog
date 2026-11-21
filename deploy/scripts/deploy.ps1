@@ -10,6 +10,8 @@ param(
     [string]$Target = $env:BLOG_TARGET,
     [string]$Site = $env:BLOG_SITE,
     [string]$RemoteRoot = "/var/www/blog",
+    [string]$Identity = $env:BLOG_IDENTITY,
+    [string]$KnownHosts = $env:BLOG_KNOWN_HOSTS,
     [switch]$SkipBuild
 )
 
@@ -22,6 +24,13 @@ if (-not $Site) { $Site = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) 
 
 if (-not $Target) { Fail "missing -Target (e.g. root@1.2.3.4) or BLOG_TARGET" }
 if (-not (Test-Path $Site)) { Fail "site directory not found: $Site" }
+
+# 共用的 ssh 选项：非默认私钥、或者主机指纹还没进 known_hosts 时需要
+#   -Identity   C:\Users\me\.ssh\id_ed25519
+#   -KnownHosts D:\AI_Project\blog\.ssh_known_hosts
+$sshOpts = @("-o", "ConnectTimeout=10")
+if ($KnownHosts) { $sshOpts += @("-o", "UserKnownHostsFile=$KnownHosts", "-o", "StrictHostKeyChecking=accept-new") }
+if ($Identity) { $sshOpts += @("-o", "IdentitiesOnly=yes", "-i", $Identity) }
 
 # --- 1. locate hugo -------------------------------------------------------
 $hugo = Join-Path $Site ".tools\hugo.exe"
@@ -60,13 +69,13 @@ Write-Host "    $size MB" -ForegroundColor DarkGray
 # --- 4. upload ------------------------------------------------------------
 $remoteTmp = "/tmp/blog-$ts.tar.gz"
 Write-Host "==> uploading to ${Target}:$remoteTmp" -ForegroundColor Cyan
-scp -q -o ConnectTimeout=10 $archive "${Target}:$remoteTmp"
+scp -q @sshOpts $archive "${Target}:$remoteTmp"
 if ($LASTEXITCODE -ne 0) { Fail "scp failed" }
 
 # --- 5. activate ----------------------------------------------------------
 Write-Host "==> activating" -ForegroundColor Cyan
 $remoteScript = Get-Content (Join-Path $PSScriptRoot "remote-release.sh") -Raw
-$remoteScript | ssh -o ConnectTimeout=10 $Target "bash -s -- $ts $remoteTmp"
+$remoteScript | ssh @sshOpts $Target "bash -s -- $ts $remoteTmp"
 if ($LASTEXITCODE -ne 0) { Fail "remote activation failed (site left on the previous release)" }
 
 Remove-Item $archive -Force

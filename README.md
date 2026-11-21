@@ -3,7 +3,7 @@
 这套东西的目标：**在本地写 Markdown，一条命令发到 VPS，网站几秒钟更新**。服务器上不跑 PHP、不跑数据库，1 核 1G 绰绰有余。
 
 ```
-本地 Windows                          服务器 (Ubuntu 22.04/24.04)
+本地 Windows                          服务器 (Ubuntu / CentOS / RHEL 系)
 ┌─────────────────┐   tar.gz + ssh   ┌──────────────────────────────┐
 │ content/*.md    │ ───────────────► │ /var/www/blog/releases/<时间戳>/ │
 │ hugo build      │                  │ /var/www/blog/current ──┐      │
@@ -39,7 +39,7 @@ blog/
 
 ## 前置条件
 
-- 一台 Ubuntu 22.04 / 24.04 的 VPS，能 SSH 登录，有 root 或 sudo
+- 一台 VPS（Ubuntu 22.04/24.04，或 CentOS Stream / RHEL / Alma / Rocky 系），能 SSH 登录，有 root 或 sudo
 - 一个域名，能改 DNS 解析
 - Windows 上已经能 `ssh`、`scp`（系统自带 OpenSSH，你的机器里已有）
 
@@ -96,6 +96,27 @@ bash /root/blog-deploy/scripts/bootstrap-server.sh 你的域名 你的邮箱
 
 它会依次完成：装 nginx + certbot → 建 `/var/www/blog` → 装站点配置 → 开 22/80/443 防火墙 → 申请证书并开启 HTTPS 跳转。
 
+脚本自己识别发行版，不用你改：
+
+| | Debian / Ubuntu | CentOS / RHEL / Alma / Rocky |
+|---|---|---|
+| 包管理 | `apt` | `dnf`（缺 `certbot-nginx` 会自动装 EPEL） |
+| 站点配置 | `/etc/nginx/sites-available/blog` | `/etc/nginx/conf.d/blog.conf` |
+| 运行用户 | `www-data` | `nginx` |
+| 防火墙 | `ufw` | `firewalld`（`--add-service=http/https`） |
+
+**如果 DNS 还没指过来**，别急着申请证书（Let's Encrypt 会连不上，白等一轮失败）：
+
+```bash
+bash /root/blog-deploy/scripts/bootstrap-server.sh 你的域名 --skip-cert
+```
+
+解析生效后再补一条：
+
+```bash
+certbot --nginx -d 你的域名 -d www.你的域名 --agree-tos -m 你的邮箱 --redirect
+```
+
 看到 `done.` 就成了。验证：
 
 ```bash
@@ -135,6 +156,16 @@ cd D:\AI_Project\blog
 第一次连这台机器，先手动 `ssh root@你的服务器IP` 一次，把 host key 接受了，否则 scp 会卡在 yes/no 提问上。
 
 脚本做的事：构建 → 打包 → scp 上传 → 远端解压到新 release → 切换软链 → `nginx -t` → reload → 只保留最近 5 个版本。
+
+如果你的私钥不是默认的、或者主机指纹没进 `known_hosts`（新机器第一次连就是这么回事），多给两个参数：
+
+```powershell
+.\deploy\scripts\deploy.ps1 -Target root@你的服务器IP `
+  -Identity "$env:USERPROFILE\.ssh\id_ed25519" `
+  -KnownHosts "D:\AI_Project\blog\.ssh_known_hosts"
+```
+
+也可以把它们设成环境变量 `BLOG_IDENTITY` / `BLOG_KNOWN_HOSTS`，以后就不用每次带。
 
 看到 `OK release 20261121-101500 is live` 就上线了。
 
@@ -217,12 +248,12 @@ cat ~/.ssh/gh_deploy          # 复制这一整段，等下贴到 GitHub
 **方案 A（推荐先这样，五分钟搞定）**：博客占 443，代理换到 8443。
 
 - 改代理服务端配置的监听端口为 8443，客户端同步改
-- 服务器防火墙放行 8443：`ufw allow 8443/tcp`
+- 服务器防火墙放行 8443：`ufw allow 8443/tcp`（CentOS 上是 `firewall-cmd --permanent --add-port=8443/tcp && firewall-cmd --reload`）
 - 博客继续用标准 443，浏览器访问不了才奇怪
 
 **方案 B（进阶，以后再折腾）**：Xray 的 VLESS + fallback，让代理和网站共用 443，按 SNI 分流，伪装性最好，但配置复杂、排错麻烦。等博客稳定了再考虑。
 
-⚠️ 如果代理用了**非 22 的 SSH 端口**，在跑 `bootstrap-server.sh` 之前先把脚本里的 `ufw allow OpenSSH` 改成你的实际端口，否则防火墙一开就把自己关在门外。
+⚠️ 如果代理用了**非 22 的 SSH 端口**，在跑 `bootstrap-server.sh` 之前先把脚本里的 `ufw allow OpenSSH`（CentOS 上是 `firewall-cmd` 那段）改成你的实际端口，否则防火墙一开就把自己关在门外。
 
 ---
 
