@@ -1,0 +1,9 @@
+[Unit]
+Description=Sync Cloudflare IP ranges into nginx real_ip config
+Documentation=https://www.cloudflare.com/ips/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/cf-realip-update.sh

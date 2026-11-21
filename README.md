@@ -316,6 +316,39 @@ DNS 里把两条 A 记录的云朵点灰即可，秒级生效。SSL 模式保持
 - **访问日志里全是 Cloudflare 的 IP**。要还原真实 IP，需要 `ngx_http_realip_module` + 定期同步 CF 的网段（`set_real_ip_from` / `real_ip_header CF-Connecting-IP`）。
 - **证书续期仍能过**：CF 会把 `/.well-known/acme-challenge/` 回源到 80，源站 301 到 443 后 certbot 的 `--nginx` 仍能应答。真出问题就临时把云朵点灰再续。
 
+### 6. 还原真实访客 IP（real_ip）
+
+开了云朵之后，`$remote_addr` 全是 Cloudflare 边缘节点的地址，日志、限流、封禁全都失去意义。CF 会把真实客户端地址放在 `CF-Connecting-IP` 头里，让 nginx 在**且仅在**对端是 CF 网段时信任它：
+
+```nginx
+set_real_ip_from 173.245.48.0/20;   # ... 共 22 段（v4 + v6）
+real_ip_header CF-Connecting-IP;
+real_ip_recursive on;
+```
+
+这些网段会变（CF 偶尔增减），所以不要手写死。仓库里带了一个同步脚本 + systemd 定时器：
+
+```bash
+# 在服务器上执行
+scp deploy/scripts/cf-realip-update.sh root@服务器:/usr/local/bin/
+scp deploy/scripts/cf-realip.{service,timer} root@服务器:/etc/systemd/system/
+ssh root@服务器 "chmod 755 /usr/local/bin/cf-realip-update.sh && \
+  systemctl daemon-reload && \
+  /usr/local/bin/cf-realip-update.sh && \
+  systemctl enable --now cf-realip.timer"
+```
+
+脚本的行为：拉 `https://www.cloudflare.com/ips-v4|ips-v6` → 校验段数（少于 10 段视为异常，拒绝写入）→ 写 `/etc/nginx/conf.d/cloudflare-realip.conf` → `nginx -t` 通过才 reload，失败自动回滚。定时器每天 04:17（±1 小时）跑一次。
+
+验证方法：随便访问一次带唯一 query 的地址，然后看日志里 `$remote_addr` 是不是你自己的 IP：
+
+```bash
+curl -s "https://aiqivy.com/?probe=$RANDOM" >/dev/null
+tail -n 1 /var/log/nginx/access.log
+```
+
+⚠️ `real_ip` 只改变 nginx **认为**的对端地址。如果你还想让源站只接受 CF 的流量（防止有人拿 IP 直连绕过缓存），那要在 firewalld 里做白名单，属于另一件事，可做可不做。
+
 ---
 
 ## 回滚
