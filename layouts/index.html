@@ -1,29 +1,30 @@
 {{ define "main" }}
-<section class="intro">
-  <h1>{{ site.Title }}</h1>
-  {{ with site.Params.description }}<p class="lead">{{ . }}</p>{{ end }}
+<section class="hero">
+  <div class="container">
+    <span class="hero-badge"><span class="pulse"></span>在线 · {{ now.Format "2006-01-02" }}</span>
+    <h1>{{ site.Title }}</h1>
+    {{ with site.Params.description }}<p class="lead">{{ . }}</p>{{ end }}
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="{{ "/posts/" | relURL }}">开始阅读</a>
+      <a class="btn btn-ghost" href="{{ "/about/" | relURL }}">关于这里</a>
+    </div>
+  </div>
 </section>
 
 {{ $posts := where site.RegularPages "Section" "posts" }}
 {{ $posts = where $posts "Draft" false }}
 
-{{ if $posts }}
-<h2 class="section-title">最近更新</h2>
-<ul class="post-list">
-  {{ range first 10 $posts }}
-  <li class="post-item">
-    <a class="post-link" href="{{ .RelPermalink }}">{{ .Title }}</a>
-    <div class="post-meta">
-      <time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "2006-01-02" }}</time>
-      <span class="dot">·</span>
-      <span>{{ .ReadingTime }} 分钟</span>
-    </div>
-    {{ with .Description }}<p class="post-summary">{{ . }}</p>{{ end }}
-  </li>
+<div class="container wide">
+  {{ if $posts }}
+  <div class="section-head">
+    <h2 class="section-title">最近更新</h2>
+    <a class="more-link" href="{{ "/posts/" | relURL }}">全部文章 →</a>
+  </div>
+  <ul class="cards">
+    {{ range first 9 $posts }}{{ partial "post-card.html" . }}{{ end }}
+  </ul>
+  {{ else }}
+  <p class="empty">还没有文章。执行 <code>hugo new content posts/first.md</code> 开始写第一篇。</p>
   {{ end }}
-</ul>
-<p class="more"><a href="{{ "/posts/" | relURL }}">全部文章 →</a></p>
-{{ else }}
-<p class="empty">还没有文章。执行 <code>hugo new content posts/first.md</code> 开始写第一篇。</p>
-{{ end }}
+</div>
 {{ end }}

@@ -1,21 +1,13 @@
 {{ define "main" }}
-<h1 class="page-title">{{ .Title }}</h1>
-{{ with .Content }}<div class="content">{{ . }}</div>{{ end }}
+<div class="container wide">
+  <h1 class="page-title">{{ .Title }}</h1>
+  {{ with .Content }}<div class="content">{{ . }}</div>{{ end }}
 
-{{ $paginator := .Paginate (.Pages.ByDate.Reverse) }}
-<ul class="post-list">
-  {{ range $paginator.Pages }}
-  <li class="post-item">
-    <a class="post-link" href="{{ .RelPermalink }}">{{ .Title }}</a>
-    <div class="post-meta">
-      <time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "2006-01-02" }}</time>
-      <span class="dot">·</span>
-      <span>{{ .ReadingTime }} 分钟</span>
-    </div>
-    {{ with .Description }}<p class="post-summary">{{ . }}</p>{{ end }}
-  </li>
-  {{ end }}
-</ul>
+  {{ $paginator := .Paginate (.Pages.ByDate.Reverse) }}
+  <ul class="cards">
+    {{ range $paginator.Pages }}{{ partial "post-card.html" . }}{{ end }}
+  </ul>
 
-{{ partial "pagination.html" $paginator }}
+  {{ partial "pagination.html" $paginator }}
+</div>
 {{ end }}

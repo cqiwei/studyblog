@@ -1,27 +1,33 @@
 {{ define "main" }}
-<article class="post">
-  <header class="post-header">
-    <h1>{{ .Title }}</h1>
-    <div class="post-meta">
-      <time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "2006-01-02" }}</time>
-      <span class="dot">·</span>
-      <span>{{ .ReadingTime }} 分钟</span>
-      {{ with .Params.tags }}
-      <span class="dot">·</span>
-      <span class="tags">
-        {{ range . }}<a class="tag" href="{{ "/tags/" | relURL }}{{ . | urlize }}/">{{ . }}</a>{{ end }}
-      </span>
-      {{ end }}
+<div class="container post-wrap">
+  {{ if eq .Section "posts" }}
+  <a class="back-link" href="{{ "/posts/" | relURL }}">← 返回文章列表</a>
+  {{ end }}
+
+  <article class="post">
+    <header class="post-header">
+      <h1>{{ .Title }}</h1>
+      <div class="post-meta">
+        <time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "2006-01-02" }}</time>
+        <span class="dot">·</span>
+        <span>{{ .ReadingTime }} 分钟</span>
+        {{ with .Params.tags }}
+        <span class="dot">·</span>
+        <span class="tags">
+          {{ range . }}<a class="tag" href="{{ "/tags/" | relURL }}{{ . | urlize }}/">{{ . }}</a>{{ end }}
+        </span>
+        {{ end }}
+      </div>
+    </header>
+
+    <div class="content">
+      {{ .Content }}
     </div>
-  </header>
 
-  <div class="content">
-    {{ .Content }}
-  </div>
-
-  <nav class="post-nav">
-    {{ with .PrevInSection }}<a class="prev" href="{{ .RelPermalink }}">← {{ .Title }}</a>{{ end }}
-    {{ with .NextInSection }}<a class="next" href="{{ .RelPermalink }}">{{ .Title }} →</a>{{ end }}
-  </nav>
-</article>
+    <nav class="post-nav">
+      {{ with .PrevInSection }}<a class="prev" href="{{ .RelPermalink }}">← {{ .Title }}</a>{{ end }}
+      {{ with .NextInSection }}<a class="next" href="{{ .RelPermalink }}">{{ .Title }} →</a>{{ end }}
+    </nav>
+  </article>
+</div>
 {{ end }}
