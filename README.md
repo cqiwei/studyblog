@@ -307,6 +307,16 @@ setx CLOUDFLARE_ZONE_NAME "aiqivy.com"   # 可选，默认就是这个
 
 没设 token 就跳过（等价于 `-SkipPurge`），手动清：`python deploy\scripts\purge-cache.py`。
 
+不想每次 `setx` 的话，把变量写进 `.deploy\cf.env`（已在 `.gitignore` 里，不会进仓库），`deploy.ps1` 启动时会自动读取：
+
+```
+CLOUDFLARE_API_TOKEN=你的token
+BLOG_IDENTITY=C:\Users\123\.ssh\id_ed25519
+BLOG_KNOWN_HOSTS=D:\AI_Project\blog\.ssh_known_hosts
+```
+
+已有的环境变量优先级更高，想临时换 token 直接 `$env:CLOUDFLARE_API_TOKEN=...` 覆盖即可；也可以用 `-EnvFile 别的路径` 指定。
+
 ### 4. 回退
 
 DNS 里把两条 A 记录的云朵点灰即可，秒级生效。SSL 模式保持 `Full (strict)` 不影响直连。缓存规则留着也没事（不代理时它不起作用）。

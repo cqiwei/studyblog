@@ -13,10 +13,29 @@ param(
     [string]$Identity = $env:BLOG_IDENTITY,
     [string]$KnownHosts = $env:BLOG_KNOWN_HOSTS,
     [switch]$SkipBuild,
-    [switch]$SkipPurge
+    [switch]$SkipPurge,
+    [string]$EnvFile = $env:BLOG_ENV_FILE
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- 0. optional local env file (gitignored) -------------------------------
+# 把 CLOUDFLARE_API_TOKEN / BLOG_IDENTITY / BLOG_KNOWN_HOSTS 写进 .deploy\cf.env，
+# 每行 KEY=VALUE，就不用每次 set 环境变量；已存在的环境变量优先级更高。
+$siteRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+if (-not $EnvFile) { $EnvFile = Join-Path $siteRoot ".deploy\cf.env" }
+if (Test-Path $EnvFile) {
+    foreach ($line in (Get-Content $EnvFile -Encoding UTF8)) {
+        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$') {
+            $k = $Matches[1]
+            $v = $Matches[2].Trim('"').Trim("'")
+            if (-not [Environment]::GetEnvironmentVariable($k)) { Set-Item -Path "env:$k" -Value $v }
+        }
+    }
+}
+if (-not $Identity) { $Identity = $env:BLOG_IDENTITY }
+if (-not $KnownHosts) { $KnownHosts = $env:BLOG_KNOWN_HOSTS }
+if (-not $Target) { $Target = $env:BLOG_TARGET }
 
 function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 
