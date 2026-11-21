@@ -287,6 +287,60 @@ tar -czf /tmp/blog-backup-$(date +%F).tar.gz -C /var/www/blog/releases .
 
 ---
 
+## 安全加固
+
+服务器初始只给了 root 密码登录，这等于把整个系统交给一个可能被猜中的字符串。目标状态是**只能凭私钥登录**，密码通道彻底关掉。
+
+### 1. 装公钥
+
+```bash
+# 本机（Windows）把公钥内容贴进去；没有 key 就先 ssh-keygen -t ed25519
+ssh root@服务器IP "mkdir -p /root/.ssh && chmod 700 /root/.ssh && \
+  echo 'ssh-ed25519 AAAA...你的公钥' >> /root/.ssh/authorized_keys && \
+  chmod 600 /root/.ssh/authorized_keys"
+```
+
+**先新开一个窗口验证 `ssh root@服务器IP` 能免密登录，再往下做** —— 否则下一步会把自己锁在外面。
+
+### 2. 关掉密码认证
+
+CentOS / RHEL 上有个坑：`sshd_config` 里 `Include /etc/ssh/sshd_config.d/*.conf` 在第 15 行，而 sshd 对同一关键字**取第一个出现的值**，所以 drop-in 目录里的设置会盖掉主配置文件后面的设置。云镜像自带的 `/etc/ssh/sshd_config.d/50-cloud-init.conf` 往往写着 `PasswordAuthentication yes`，只改主配置**不生效**。
+
+稳妥做法是新建一个排序更靠前的 drop-in：
+
+```bash
+cat > /etc/ssh/sshd_config.d/10-hardening.conf <<'EOF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PermitEmptyPasswords no
+EOF
+chmod 600 /etc/ssh/sshd_config.d/10-hardening.conf
+sshd -t && systemctl reload sshd
+sshd -T | grep -iE '^(passwordauthentication|permitrootlogin)'
+```
+
+`10-` 前缀让它排在 `50-cloud-init.conf` 前面，这样即使 cloud-init 重写了自己的文件，加固依然有效。
+
+### 3. 验证
+
+```bash
+# 应成功
+ssh root@服务器IP true && echo 密钥OK
+# 应报 Permission denied (publickey,...)，列表里没有 password
+ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password root@服务器IP true
+```
+
+改坏了怎么办：控制台/VNC 进去，用备份还原 —— 脚本已把原文件存成 `/root/*.bak.<时间戳>`。
+
+### 4. 还没做的
+
+- **root 密码本身没改过**，如果它曾经出现在聊天记录、截图、剪贴板里，登录通道关了也建议改一次：`passwd`。
+- 想要更彻底，可以禁用 root 直接登录、建一个普通用户 + sudo，再把 22 端口换个高位端口（记得同步改 firewalld 规则）。
+
+---
+
 ## 排错速查
 
 | 现象 | 原因 | 处理 |
