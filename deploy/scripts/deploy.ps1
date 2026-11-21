@@ -1,4 +1,4 @@
-# One-command deploy: build locally, ship to the VPS, switch the symlink.
+﻿# One-command deploy: build locally, ship to the VPS, switch the symlink.
 #
 #   .\deploy\scripts\deploy.ps1 -Target root@1.2.3.4
 #
@@ -12,7 +12,8 @@ param(
     [string]$RemoteRoot = "/var/www/blog",
     [string]$Identity = $env:BLOG_IDENTITY,
     [string]$KnownHosts = $env:BLOG_KNOWN_HOSTS,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$SkipPurge
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,6 +80,23 @@ $remoteScript | ssh @sshOpts $Target "bash -s -- $ts $remoteTmp"
 if ($LASTEXITCODE -ne 0) { Fail "remote activation failed (site left on the previous release)" }
 
 Remove-Item $archive -Force
+
+# --- 6. purge Cloudflare edge cache (optional) ----------------------------
+# 需要的前提：站点走了 Cloudflare 代理（橙色云朵）+ 边缘缓存了 HTML。
+# 不清理的话，新文章要等到边缘 TTL 过期才可见。
+# 设置 CLOUDFLARE_API_TOKEN（Zone -> Cache Purge -> Purge）即可自动执行。
+if (-not $SkipPurge -and $env:CLOUDFLARE_API_TOKEN) {
+    $py = $env:BLOG_PYTHON
+    if (-not $py) { $py = (Get-Command python -ErrorAction SilentlyContinue).Source }
+    if (-not $py -and (Test-Path "D:\tools\python\python.exe")) { $py = "D:\tools\python\python.exe" }
+    if (-not $py) {
+        Write-Warning "找不到 python，跳过缓存清理（新内容要等边缘 TTL 过期才可见）"
+    } else {
+        Write-Host "==> purging Cloudflare cache" -ForegroundColor Cyan
+        & $py (Join-Path $PSScriptRoot "purge-cache.py")
+        if ($LASTEXITCODE -ne 0) { Write-Warning "缓存清理失败，页面可能仍是旧内容（部署本身已成功）" }
+    }
+}
 
 Write-Host ""
 Write-Host "OK  release $ts is live" -ForegroundColor Green

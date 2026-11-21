@@ -259,6 +259,65 @@ cat ~/.ssh/gh_deploy          # 复制这一整段，等下贴到 GitHub
 
 ---
 
+## 走 Cloudflare（橙色云朵）
+
+这一步是可选的。好处：隐藏源站 IP、免费 DDoS 防护、静态资源全球缓存。代价：多一跳，国内访问可能反而慢一点（取决于被分到哪个边缘节点）。
+
+### 1. 顺序很重要：先改 SSL 模式，再开云朵
+
+DNS → Records → 把 A 记录的云朵点亮之前，先确认 **SSL/TLS → Overview → Full (strict)**。
+
+原因：源站 Nginx 会把 80 全部 301 到 443。如果 CF 是 `Flexible` 模式（CF 用 HTTP 回源），回源请求被源站 301 到 HTTPS，浏览器又被 CF 拉回 HTTP —— **无限重定向**。`Full (strict)` 下 CF 用 HTTPS 回源并校验源站证书，正好匹配 Let's Encrypt。
+
+### 2. HTML 默认不缓存，得自己加规则
+
+云朵打开后你会发现 HTML 还是 `cf-cache-status: DYNAMIC`，也就是**每次访问都回源**，首字节没变快。静态站可以让边缘把 HTML 也缓存起来：
+
+Cache → Cache Rules → 新建一条（本项目实际用的配置）：
+
+| 项 | 值 |
+|---|---|
+| 匹配 | `http.request.method eq "GET"` 且路径是 `/`、以 `/` 结尾、`*.html`、`/index.xml`、`/sitemap.xml`、`/robots.txt` |
+| Cache eligibility | Cache everything |
+| Edge TTL | Override origin，3600 秒 |
+| Browser TTL | Bypass（避免浏览器缓存住旧页面） |
+
+对应 API 是 `PUT /zones/<zone>/rulesets/phases/http_request_cache_settings/entrypoint`，规则体：
+
+```json
+{
+  "action": "set_cache_settings",
+  "action_parameters": {
+    "cache": true,
+    "edge_ttl": { "mode": "override_origin", "default": 3600 },
+    "browser_ttl": { "mode": "bypass" }
+  }
+}
+```
+
+### 3. 部署后必须清缓存
+
+HTML 被边缘缓存 1 小时，意味着**发新文章后 1 小时内老访客看不到**。所以部署脚本最后加了一步 purge `purge-cache.py`，只要设了环境变量就会自动执行：
+
+```powershell
+setx CLOUDFLARE_API_TOKEN "你的token"     # 需要 Zone -> Cache Purge -> Purge
+setx CLOUDFLARE_ZONE_ID  "zone_id"       # 可选，不设就按 CLOUDFLARE_ZONE_NAME 查
+setx CLOUDFLARE_ZONE_NAME "aiqivy.com"   # 可选，默认就是这个
+```
+
+没设 token 就跳过（等价于 `-SkipPurge`），手动清：`python deploy\scripts\purge-cache.py`。
+
+### 4. 回退
+
+DNS 里把两条 A 记录的云朵点灰即可，秒级生效。SSL 模式保持 `Full (strict)` 不影响直连。缓存规则留着也没事（不代理时它不起作用）。
+
+### 5. 开了云朵之后的副作用
+
+- **访问日志里全是 Cloudflare 的 IP**。要还原真实 IP，需要 `ngx_http_realip_module` + 定期同步 CF 的网段（`set_real_ip_from` / `real_ip_header CF-Connecting-IP`）。
+- **证书续期仍能过**：CF 会把 `/.well-known/acme-challenge/` 回源到 80，源站 301 到 443 后 certbot 的 `--nginx` 仍能应答。真出问题就临时把云朵点灰再续。
+
+---
+
 ## 回滚
 
 ```bash
@@ -353,6 +412,10 @@ ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password root@服务�
 | scp 卡住不动 | 首次连接在等 host key | 先手动 `ssh` 一次 |
 | 部署后 404 | 文章 `draft: true` | 改成 `false` 再构建 |
 | 页面中文乱码 | 编辑器存成了 GBK | 一律存 UTF-8（无 BOM） |
+| 跑 `deploy.ps1` 报「字符串缺少终止符」 | PowerShell 5.1 把**无 BOM 的 UTF-8** `.ps1` 当 GBK 读，中文注释/字符串被截断 | 用「UTF-8 with BOM」另存；VSCode 右下角点编码 → Save with Encoding → UTF-8 with BOM |
+| 开云朵后浏览器报「重定向次数过多」 | CF SSL 模式是 `Flexible`，和源站 80→443 跳转打架 | SSL/TLS → Overview → 改 `Full (strict)` |
+| 开了云朵但访问没变快 | HTML 是 `cf-cache-status: DYNAMIC`（不缓存） | 加 Cache Rule 缓存 HTML，见「走 Cloudflare」一节 |
+| 发文章后线上还是旧内容 | 边缘缓存没清 | 设 `CLOUDFLARE_API_TOKEN` 让部署脚本自动 purge，或手动跑 `purge-cache.py` |
 
 ---
 
