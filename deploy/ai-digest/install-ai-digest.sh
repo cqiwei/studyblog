@@ -71,12 +71,22 @@ systemctl enable --now ai-digest.timer
 systemctl list-timers ai-digest.timer --no-pager | head -4
 
 say "完成。凭据写在这里：/etc/ai-digest.conf（600）"
+# 幂等：已填过凭据就不覆盖
+if [ ! -s /etc/ai-digest.conf ] || ! grep -qE '^LLM_API_KEY=.+' /etc/ai-digest.conf; then
 cat > /etc/ai-digest.conf <<'EOF'
-# AI 前哨日报配置（KEY=VALUE，不要加引号）
-# DEEPSEEK_API_KEY=sk-xxxx
+# AI 前哨日报配置（KEY=VALUE，不要加引号，注释要整行写）
+# LLM 用 OpenAI 兼容接口；默认魔搭 API-Inference（每天免费额度）
+LLM_API_KEY=
+# LLM_API_KEY=ms-xxxxxx            ← 魔搭令牌（modelscope.cn/my/myaccesstoken）
+# LLM_BASE_URL=https://api-inference.modelscope.cn/v1
+# LLM_MODEL=deepseek-ai/DeepSeek-V4.1-Flash
+# 换 DeepSeek 官方时：
+# LLM_BASE_URL=https://api.deepseek.com/v1
+# LLM_MODEL=deepseek-chat
 # GITHUB_TOKEN=（可选，GitHub API 限额更高时用）
 # CF_API_TOKEN=（可选，有权限时发布后自动清理 Cloudflare 缓存）
-# AI_RSSHUB_URLS=https://rsshub.app/twitter/xxx（可选，一行多个用逗号分隔）
+# AI_RSSHUB_URLS=（可选，一行多个用逗号分隔）
 EOF
 chmod 600 /etc/ai-digest.conf
+fi
 echo "跑一次试试：systemctl start ai-digest && journalctl -u ai-digest -n 30"

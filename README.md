@@ -467,11 +467,15 @@ bash /tmp/ai-digest-src/install-ai-digest.sh /tmp/ai-digest-src
 凭据写在 `/etc/ai-digest.conf`（600）：
 
 ```
-DEEPSEEK_API_KEY=sk-xxxx        # 必填，DeepSeek 总结
+LLM_API_KEY=ms-xxxx             # 必填，魔搭令牌（modelscope.cn/my/myaccesstoken）
+LLM_BASE_URL=https://api-inference.modelscope.cn/v1
+LLM_MODEL=deepseek-ai/DeepSeek-V4.1-Flash
 GITHUB_TOKEN=ghp_xxx            # 可选，GitHub API 限额更高
 CF_API_TOKEN=xxx                # 可选，发布后自动清 Cloudflare 缓存
-AI_RSSHUB_URLS=...              # 可选，RSSHub 源（如推特列表、机器之心）
+AI_RSSHUB_URLS=...              # 可选，RSSHub 源（如推特列表）
 ```
+
+LLM 是 OpenAI 兼容接口，默认走**魔搭 API-Inference**（每天 2000 次免费请求）；想换 DeepSeek 官方就把 `LLM_BASE_URL` 改成 `https://api.deepseek.com/v1`、`LLM_MODEL` 改成 `deepseek-chat`，令牌用 `sk-` 开头的官方 key。
 
 日常操作：
 

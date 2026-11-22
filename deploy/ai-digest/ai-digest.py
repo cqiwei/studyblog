@@ -5,7 +5,8 @@
   ① 拉取各信息源（RSS / HN / arXiv / GitHub）
   ② sqlite 去重（保留 90 天）
   ③ 按来源权重 + 新鲜度挑选 Top N
-  ④ 调 DeepSeek 总结成一篇中文日报（没配 key 就发纯聚合版）
+  ④ 调 LLM 总结成一篇中文日报（OpenAI 兼容接口：默认魔搭免费额度，
+     没配 key 就发纯聚合版）
   ⑤ git 提交推送 → hugo 构建 → 翻 release 软链 → purge Cloudflare
 
 配置从 /etc/ai-digest.conf 读（KEY=VALUE），也认环境变量。
@@ -36,8 +37,11 @@ REPO_DIR = os.environ.get("DIGEST_REPO", "/opt/blogrepo")
 SEEN_DB = os.environ.get("DIGEST_SEEN_DB", "/var/lib/ai-digest/seen.db")
 RELEASE_ROOT = "/var/www/blog/releases"
 CURRENT_LINK = "/var/www/blog/current"
-DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+# LLM：OpenAI 兼容接口即可。默认魔搭（每天免费额度），
+# 也可以换 DeepSeek 官方（LLM_BASE_URL=https://api.deepseek.com/v1）
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "") or os.environ.get("DEEPSEEK_API_KEY", "")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api-inference.modelscope.cn/v1")
+LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-ai/DeepSeek-V4.1-Flash")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
 CF_ZONE_NAME = os.environ.get("CF_ZONE_NAME", "aiqivy.com")
@@ -85,7 +89,9 @@ def load_conf():
             key, _, value = line.partition("=")
             os.environ.setdefault(key.strip(), value.strip())
     globals().update(
-        DEEPSEEK_KEY=os.environ.get("DEEPSEEK_API_KEY", ""),
+        LLM_API_KEY=os.environ.get("LLM_API_KEY", "") or os.environ.get("DEEPSEEK_API_KEY", ""),
+        LLM_BASE_URL=os.environ.get("LLM_BASE_URL", "https://api-inference.modelscope.cn/v1"),
+        LLM_MODEL=os.environ.get("LLM_MODEL", "deepseek-ai/DeepSeek-V4.1-Flash"),
         GITHUB_TOKEN=os.environ.get("GITHUB_TOKEN", ""),
         CF_API_TOKEN=os.environ.get("CF_API_TOKEN", ""),
         RSSHUB_URLS=[u for u in os.environ.get("AI_RSSHUB_URLS", "").split(",") if u],
@@ -367,13 +373,12 @@ def build_material(items):
 
 def deepseek_summarize(items):
     material = build_material(items)
-    body = subprocess_run_llm(material)
-    return body
+    return subprocess_run_llm(material)
 
 
 def subprocess_run_llm(material):
     payload = {
-        "model": "deepseek-chat",
+        "model": LLM_MODEL,
         "temperature": 0.5,
         "max_tokens": 3500,
         "messages": [
@@ -386,7 +391,7 @@ def subprocess_run_llm(material):
              "content": (
                  "下面是过去 36 小时收集到的 AI 信息。请写成一篇日报，结构：\n"
                  "## 今日看点\n3-5 条一句话要点（挑最有价值的）\n"
-                 "## 媒体动态\n（机器之心/量子位/TechCrunch/The Verge/HN）\n"
+                 "## 媒体动态\n（量子位/TechCrunch/The Verge/HN）\n"
                  "## 论文速览\n（arXiv，每条一两句人话概括）\n"
                  "## 开源热门\n（GitHub 项目）\n\n"
                  "格式：**标题** — 一两句中文摘要。([来源](链接))\n"
@@ -394,12 +399,12 @@ def subprocess_run_llm(material):
         ],
     }
     req = urllib.request.Request(
-        DEEPSEEK_URL,
+        LLM_BASE_URL.rstrip("/") + "/chat/completions",
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json",
-                 "Authorization": f"Bearer {DEEPSEEK_KEY}"},
+                 "Authorization": f"Bearer {LLM_API_KEY}"},
         method="POST")
-    with urllib.request.urlopen(req, timeout=180) as resp:
+    with urllib.request.urlopen(req, timeout=300) as resp:
         data = json.loads(resp.read())
     return data["choices"][0]["message"]["content"].strip()
 
@@ -522,15 +527,15 @@ def main():
             print(build_material(picked))
             return
 
-        if DEEPSEEK_KEY:
+        if LLM_API_KEY:
             try:
                 body = deepseek_summarize(picked)
-                log("DeepSeek 总结完成")
+                log(f"LLM 总结完成（{LLM_MODEL} @ {LLM_BASE_URL}）")
             except Exception as exc:
-                log(f"WARN DeepSeek 失败，改发聚合版: {exc}")
+                log(f"WARN LLM 失败，改发聚合版: {exc}")
                 body = aggregate_fallback(picked)
         else:
-            log("WARN 未配置 DEEPSEEK_API_KEY，发纯聚合版")
+            log("WARN 未配置 LLM_API_KEY，发纯聚合版")
             body = aggregate_fallback(picked)
 
         mark_seen(conn, picked)
