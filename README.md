@@ -403,6 +403,7 @@ firewall-cmd --zone=public --remove-rich-rule='rule family="ipv4" source address
 
 - **文章页的阅读数**：`deploy/stats/blog-views.py`，Python 标准库写的计数服务，只监听 `127.0.0.1:8099`，SQLite 存在 `/var/lib/blogviews/views.db`。nginx 把 `POST/GET /api/views` 反代给它。
 - **站点访问报表**：goaccess 每 5 分钟把 nginx 日志汇总成一张静态 HTML，放在 `/var/www/blog-stats/index.html`，由 `/stats/` 提供，带 Basic Auth。
+- **页脚在线人数**：同一个计数服务提供的 `GET /api/online`，内存里记「最近 3 分钟出现过的访客」，页脚脚本每 60 秒心跳一次；重启服务即清零，不落盘。
 
 安装（源码先传上去）：
 

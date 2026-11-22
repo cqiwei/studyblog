@@ -36,6 +36,24 @@ BOT_RE = re.compile(
 _lock = threading.Lock()
 _last_hit = {}  # (ip, path) -> 上次计数时间，防连点
 
+# 在线访客：内存里记 ip -> 最后一次出现时间，重启即清零，不落盘
+ONLINE_WINDOW = 180  # 3 分钟内有动静就算在线
+_online = {}  # ip -> monotonic time
+
+
+def touch_online(ip):
+    now = time.monotonic()
+    _online[ip] = now
+    if len(_online) > 10000:  # 防万一被刷，及时清理过期项
+        for k, t in list(_online.items()):
+            if now - t > ONLINE_WINDOW:
+                del _online[k]
+
+
+def online_count():
+    now = time.monotonic()
+    return sum(1 for t in _online.values() if now - t <= ONLINE_WINDOW)
+
 
 def connect():
     conn = sqlite3.connect(DB_PATH, timeout=5)
@@ -120,6 +138,12 @@ class Handler(BaseHTTPRequestHandler):
         return values[0]
 
     def do_GET(self):
+        url = urlparse(self.path)
+        if url.path == "/api/online":
+            ua = self.headers.get("User-Agent") or ""
+            if not BOT_RE.search(ua):
+                touch_online(self._ip())
+            return self._json({"online": online_count()})
         path = self._target()
         if path is None:
             return self._json({"error": "not found"}, 404)

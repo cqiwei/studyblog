@@ -1,8 +1,28 @@
 <footer class="site-footer">
   <div class="container">
     <p>
-      © {{ site.Params.since }}–{{ now.Year }} {{ site.Params.author }}
-      {{ with site.Params.footer }}· {{ . }}{{ end }}
+      © {{ site.Params.since }}–{{ now.Year }} {{ site.Title }}<span id="online" hidden>，<b id="online-num">–</b>人在线</span>
     </p>
   </div>
 </footer>
+<script>
+  (function () {
+    var box = document.getElementById('online');
+    var num = document.getElementById('online-num');
+    if (!box || !num || !window.fetch) return;
+    function beat() {
+      if (document.hidden) return;
+      fetch('/api/online?beat=1', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d && typeof d.online === 'number') {
+            num.textContent = d.online;
+            box.hidden = false;
+          }
+        })
+        .catch(function () {});
+    }
+    beat();
+    setInterval(beat, 60000);
+  })();
+</script>

@@ -777,6 +777,12 @@ a:hover { text-decoration: none; }
   .card { opacity: 1; }
 }
 
+/* ---------- 页脚在线人数 ---------- */
+.site-footer #online b {
+  font-family: var(--font-serif);
+  color: var(--accent);
+}
+
 /* ---------- 板块导航 ---------- */
 .hub-grid {
   display: grid;
