@@ -460,7 +460,7 @@ curl -s https://你的域名/api/views?path=/posts/hello-world/     # {"pv":0,"u
 curl -s -o /dev/null -w '%{http_code}\n' https://你的域名/stats/ # 401（没登录）
 ```
 
-计数口径：`pv` 每访问一次 +1（同一会话刷新不算，靠 `sessionStorage` 去重）；`uv` 同一天、同 IP、同一篇只算一次。UA 里带 `bot/spider/curl/...` 的请求不计数。
+计数口径：`pv` 每访问一次 +1（同一会话刷新不算，靠 `sessionStorage` 去重）；`uv` 同一天、同 IP、同一篇只算一次（按**北京时间**分日，和每日摘要一致）。UA 里带 `bot/spider/curl/...` 的请求不计数。
 
 几个要点：
 

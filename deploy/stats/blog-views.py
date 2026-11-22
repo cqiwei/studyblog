@@ -84,7 +84,9 @@ def init_db():
 
 
 def today():
-    return time.strftime("%Y-%m-%d", time.gmtime())
+    """按北京时间分日：和 stats-daily.py 的日报口径保持一致（此前用 UTC，凌晨 0-8 点的
+    阅读会被记到前一天）。"""
+    return time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
 
 
 def read_stats(path):
