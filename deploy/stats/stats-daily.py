@@ -380,11 +380,16 @@ def render(rows, cur):
     def history_rows():
         out = []
         for r in reversed(rows[-14:]):
+            hh = r.get("health") or {}
+            load_cell = f'{hh["load_max"]:.2f}' if hh.get("load_max") is not None else "–"
+            disk_cell = hh.get("disk_pct_last")
+            disk_cell = f"{disk_cell}" if disk_cell is not None else "–"
             out.append(
                 f'<tr{" class=cur" if r["date"] == cur["date"] else ""}>'
                 f'<td class="p">{r["date"]}</td><td class="n">{r["total"]}</td>'
                 f'<td class="n">{r["human"]}</td><td class="n">{r["human_ips"]}</td>'
-                f'<td class="n">{r.get("read_pv", 0)}</td><td class="n">{r.get("read_uv", 0)}</td></tr>'
+                f'<td class="n">{r.get("read_pv", 0)}</td><td class="n">{r.get("read_uv", 0)}</td>'
+                f'<td class="n">{load_cell}</td><td class="n">{disk_cell}</td></tr>'
             )
         return "".join(out)
 
@@ -459,7 +464,7 @@ footer{{color:var(--muted);font-size:12px;margin-top:22px;text-align:center}}
 {health_rows()}
 
 <section><h2>最近 14 天</h2>
-<table><tr><td class="p muted">日期</td><td class="n muted">请求</td><td class="n muted">真实</td><td class="n muted">IP</td><td class="n muted">阅读</td><td class="n muted">读者</td></tr>
+<table><tr><td class="p muted">日期</td><td class="n muted">请求</td><td class="n muted">真实</td><td class="n muted">IP</td><td class="n muted">阅读</td><td class="n muted">读者</td><td class="n muted">负载</td><td class="n muted">磁盘%</td></tr>
 {history_rows()}</table></section>
 
 <footer>由 stats-daily.py 每日 00:10 生成 · 共记录 {len(rows)} 天</footer>
