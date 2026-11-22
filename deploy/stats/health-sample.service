@@ -1,0 +1,9 @@
+[Unit]
+Description=服务器健康采样（负载/CPU/内存/磁盘/网络）
+After=network-online.target
+
+[Service]
+Type=oneshot
+Nice=19
+ExecStart=/usr/bin/python3 /usr/local/bin/health-sample.py
+TimeoutStartSec=30

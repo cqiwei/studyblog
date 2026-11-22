@@ -24,8 +24,9 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 LOG_DIR = "/var/log/nginx"
-OUT_DIR = "/var/www/blog-stats/daily"
+OUT_DIR = os.environ.get("STATS_OUT_DIR", "/var/www/blog-stats/daily")
 STATE = "/var/lib/blogstats/daily.json"
+HEALTH = "/var/lib/blogstats/health.jsonl"
 DB = "/var/lib/blogviews/views.db"
 KEEP_DAYS = 30
 BJT = timezone(timedelta(hours=8))
@@ -158,6 +159,83 @@ def reads(day):
     return pv, uv, top
 
 
+def health(day):
+    """把 health.jsonl 里当天的采样聚合成一份摘要；没有采样就返回 None。"""
+    rows = []
+    try:
+        with open(HEALTH, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    when = datetime.fromtimestamp(rec["ts"], BJT)
+                except (ValueError, KeyError, OSError):
+                    continue
+                if when.date() == day:
+                    rows.append(rec)
+    except OSError:
+        return None
+    if not rows:
+        return None
+    rows.sort(key=lambda r: r["ts"])
+
+    loads = [r["load"][0] for r in rows if r.get("load")]
+    cpus = [r["cpu"] for r in rows if r.get("cpu") is not None]
+    mems = [r["mem"]["pct"] for r in rows if r.get("mem")]
+    disks = [r for r in rows if r.get("disk")]
+
+    rx = tx = peak_rx = peak_tx = 0
+    prev = None
+    for r in rows:
+        net = r.get("net")
+        if not net:
+            continue
+        if prev:
+            d_rx = max(0, net["rx"] - prev["rx"])
+            d_tx = max(0, net["tx"] - prev["tx"])
+            rx += d_rx
+            tx += d_tx
+            peak_rx = max(peak_rx, d_rx)
+            peak_tx = max(peak_tx, d_tx)
+        prev = net
+
+    disk_first = disks[0]["disk"] if disks else None
+    disk_last = disks[-1]["disk"] if disks else None
+    return {
+        "samples": len(rows),
+        "ncpu": rows[-1].get("ncpu", 1),
+        "uptime": rows[-1].get("uptime", 0),
+        "load_avg": round(sum(loads) / len(loads), 2) if loads else 0.0,
+        "load_max": round(max(loads), 2) if loads else 0.0,
+        "cpu_avg": round(sum(cpus) / len(cpus), 1) if cpus else None,
+        "cpu_max": round(max(cpus), 1) if cpus else None,
+        "mem_avg": round(sum(mems) / len(mems), 1) if mems else None,
+        "mem_max": round(max(mems), 1) if mems else None,
+        "mem_total": rows[-1]["mem"]["total"] if rows[-1].get("mem") else None,
+        "disk_pct_first": disk_first["pct"] if disk_first else None,
+        "disk_pct_last": disk_last["pct"] if disk_last else None,
+        "disk_used_last": disk_last["used"] if disk_last else None,
+        "disk_total": disk_last["total"] if disk_last else None,
+        "disk_delta": (disk_last["used"] - disk_first["used"]) if (disk_first and disk_last) else 0,
+        "rx": rx,
+        "tx": tx,
+        "peak_rx": peak_rx,
+        "peak_tx": peak_tx,
+    }
+
+
+def human_bytes(n):
+    units = ["B", "KB", "MB", "GB", "TB"]
+    size = float(n or 0)
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f"{size:.0f} {unit}" if unit in ("B", "KB") else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
 def load_state():
     try:
         with open(STATE, encoding="utf-8") as fh:
@@ -236,6 +314,69 @@ def render(rows, cur):
             for p, n in cur["probes"]
         )
 
+    def health_cards():
+        h = cur.get("health")
+        if not h:
+            return ""
+        total_net = h["rx"] + h["tx"]
+        return (
+            f'<div class="card"><div class="k">服务器负载</div>'
+            f'<div class="v">{h["load_max"]:.2f}</div>'
+            f'<div class="u">峰值 · {h["ncpu"]} 核 · 均 {h["load_avg"]:.2f}</div></div>'
+            f'<div class="card"><div class="k">CPU 峰值</div>'
+            f'<div class="v">{h["cpu_max"] if h["cpu_max"] is not None else "–"}%</div>'
+            f'<div class="u">均值 {h["cpu_avg"] if h["cpu_avg"] is not None else "–"}%</div></div>'
+            f'<div class="card"><div class="k">内存峰值</div>'
+            f'<div class="v">{h["mem_max"] if h["mem_max"] is not None else "–"}%</div>'
+            f'<div class="u">均值 {h["mem_avg"] if h["mem_avg"] is not None else "–"}%</div></div>'
+            f'<div class="card"><div class="k">磁盘占用</div>'
+            f'<div class="v">{h["disk_pct_last"] if h["disk_pct_last"] is not None else "–"}%</div>'
+            f'<div class="u">当日 {"+" if h["disk_delta"] >= 0 else ""}{human_bytes(h["disk_delta"])}</div></div>'
+            f'<div class="card"><div class="k">今日流量</div>'
+            f'<div class="v">{human_bytes(total_net)}</div>'
+            f'<div class="u">↓ {human_bytes(h["rx"])} · ↑ {human_bytes(h["tx"])}</div></div>'
+        )
+
+    def health_rows():
+        h = cur.get("health")
+        if not h:
+            return (
+                '<section><h2>服务器健康</h2>'
+                '<table><tr><td class="muted">这一天没有采样数据'
+                "（健康采样从 2026-11-22 起开始记录，明天起每天都有）</td></tr></table></section>"
+            )
+        rows_html = [
+            ("负载（1 分钟）", f'{h["load_avg"]:.2f} 均值 · {h["load_max"]:.2f} 峰值 · {h["ncpu"]} 核'),
+            (
+                "CPU 使用率",
+                f'{h["cpu_avg"] if h["cpu_avg"] is not None else "–"}% 均值 · '
+                f'{h["cpu_max"] if h["cpu_max"] is not None else "–"}% 峰值',
+            ),
+            (
+                "内存",
+                f'{h["mem_avg"] if h["mem_avg"] is not None else "–"}% 均值 · '
+                f'{h["mem_max"] if h["mem_max"] is not None else "–"}% 峰值'
+                + (f' · 共 {human_bytes(h["mem_total"])}' if h["mem_total"] else ""),
+            ),
+            (
+                "磁盘 /",
+                f'{human_bytes(h["disk_used_last"])} / {human_bytes(h["disk_total"])}'
+                f'（{h["disk_pct_last"]}%，当日 {"+" if h["disk_delta"] >= 0 else ""}'
+                f'{human_bytes(h["disk_delta"])}）'
+                if h["disk_total"]
+                else "无数据",
+            ),
+            (
+                "网络",
+                f'下行 {human_bytes(h["rx"])}（峰值 {human_bytes(h["peak_rx"])}/5 分钟）'
+                f' · 上行 {human_bytes(h["tx"])}（峰值 {human_bytes(h["peak_tx"])}/5 分钟）',
+            ),
+            ("采样", f'{h["samples"]} 次（每 5 分钟一次）· 开机 {h["uptime"] // 86400} 天'),
+        ]
+        return "<section><h2>服务器健康</h2><table>" + "".join(
+            f'<tr><td class="p">{k}</td><td class="n">{v}</td></tr>' for k, v in rows_html
+        ) + "</table></section>"
+
     def history_rows():
         out = []
         for r in reversed(rows[-14:]):
@@ -301,6 +442,7 @@ footer{{color:var(--muted);font-size:12px;margin-top:22px;text-align:center}}
   <div class="card"><div class="k">真实请求</div><div class="v">{cur["human"]}</div><div class="u">{cur["human_ips"]} 个 IP</div></div>
   <div class="card"><div class="k">文章阅读</div><div class="v">{cur["read_pv"]}</div><div class="u">{cur["read_uv"]} 人读过</div></div>
 </div>
+{health_cards()}
 
 <section><h2>热门页面（已剔除扫描器与爬虫）</h2><table>{page_rows()}</table></section>
 
@@ -313,6 +455,8 @@ footer{{color:var(--muted);font-size:12px;margin-top:22px;text-align:center}}
 <section><h2>外部来源</h2><table>{ref_rows()}</table></section>
 
 <section><h2>探测与扫描 · 共 {cur.get("probe_total", 0)} 次（前 6 名）</h2><table>{probe_rows()}</table></section>
+
+{health_rows()}
 
 <section><h2>最近 14 天</h2>
 <table><tr><td class="p muted">日期</td><td class="n muted">请求</td><td class="n muted">真实</td><td class="n muted">IP</td><td class="n muted">阅读</td><td class="n muted">读者</td></tr>
@@ -330,6 +474,7 @@ def main(argv):
     cur["read_pv"] = pv
     cur["read_uv"] = uv
     cur["read_top"] = top
+    cur["health"] = health(day)
 
     rows = save_state(load_state() + [cur]) if cur["total"] else load_state()
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -337,10 +482,18 @@ def main(argv):
         fh.write(render(rows, cur))
 
     top_pages = "、".join(p for p, _ in cur["pages"][:3]) or "无"
+    h = cur.get("health") or {}
+    health_bit = ""
+    if h:
+        health_bit = (
+            f"｜负载 {h['load_max']:.2f}（峰值）"
+            f"｜磁盘 {h['disk_pct_last']}%"
+            f"｜流量 ↓{human_bytes(h['rx'])} ↑{human_bytes(h['tx'])}"
+        )
     summary = (
         f"[{cur['date']}] 请求 {cur['total']}（真实 {cur['human']} / {cur['human_ips']} IP）"
         f"｜阅读 {pv} pv / {uv} uv｜热门：{top_pages}"
-        f"｜探测类请求 {cur.get('probe_total', 0)} 次"
+        f"｜探测类请求 {cur.get('probe_total', 0)} 次{health_bit}"
     )
     print(summary)
 

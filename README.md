@@ -473,7 +473,9 @@ curl -s -o /dev/null -w '%{http_code}\n' https://你的域名/stats/ # 401（没
 
 ```bash
 scp deploy/stats/stats-daily.py deploy/stats/stats-daily.service \
-    deploy/stats/stats-daily.timer deploy/stats/install-daily.sh root@服务器IP:/tmp/
+    deploy/stats/stats-daily.timer deploy/stats/health-sample.py \
+    deploy/stats/health-sample.service deploy/stats/health-sample.timer \
+    deploy/stats/install-daily.sh root@服务器IP:/tmp/
 ssh root@服务器IP 'bash /tmp/install-daily.sh'
 ```
 
@@ -485,8 +487,23 @@ ssh root@服务器IP 'bash /tmp/install-daily.sh'
 | 真实请求 | 剔掉 UA 里的 bot/爬虫、以及 `/.env`、`.php`、`wp-*` 这类探测路径 |
 | 文章阅读 | 来自 `views.db`，只统计真正打开了文章页的浏览器，**这才是可信数字** |
 | 探测与扫描 | 被 blocklist 掐断或撞 404 的路径排行 |
+| 服务器健康 | 负载 / CPU / 内存 / 磁盘 / 网络，来自每 5 分钟一次的 `health-sample` |
 
 历史存在 `/var/lib/blogstats/daily.json`，保留 30 天，页面上显示最近 14 天。想让摘要推送到别处，就在 `/etc/ai-digest.conf` 里加 `STATS_WEBHOOK_URL=...`（POST 一个 `{"text": "..."}` 的 JSON）。
+
+### 服务器健康采样
+
+访问日志只能说明「有没有人来」，机器本身扛不扛得住是另一回事——1 核 1G 的机器被扫描器刷到内存打满、或者磁盘被 release 目录占满，日志里看不出来。所以另起一个 `health-sample.timer`，每 5 分钟往 `/var/lib/blogstats/health.jsonl` 追加一行 JSON：
+
+- **负载**：`/proc/loadavg` 的 1 分钟值（配合 `ncpu` 看是否过载）；
+- **CPU**：读两次 `/proc/stat` 求差值，算这段时间的真实占用率（首次没有基准就留空）；
+- **内存**：`/proc/meminfo` 的 `MemTotal - MemAvailable`，顺带记 swap；
+- **磁盘**：`statvfs("/")` 的已用/总量，日报里还能算出「当天长了多少」；
+- **网络**：`/proc/net/dev` 排除回环后的累计字节，日报里按相邻采样求增量，避免重启丢状态。
+
+采样只留 8 天（`health-sample.py` 里的 `KEEP_SECONDS`），日报按北京时间把当天的采样聚合成「均值 / 峰值」，`systemctl status health-sample` 能看到每次采样的一行摘要。
+
+> 注意：`health-sample.py` 有窗口守卫——两次采样间隔太短（比如刚装完连跑两次）时累计 jiffies 太少，算出来的 CPU 会是假的 100%，所以不足 50 jiffies 就跳过不记。
 
 > 想回看某一天：`sudo /usr/bin/python3 /usr/local/bin/stats-daily.py 2026-11-21`，会覆盖当天那条记录。
 
