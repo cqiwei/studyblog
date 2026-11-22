@@ -1,0 +1,527 @@
+{{ define "main" }}
+<div class="container wide tool-page">
+  <header class="tool-head">
+    <p class="tool-kicker">工具箱 · 01</p>
+    <h1>{{ .Title }}</h1>
+    <p class="tool-sub">{{ .Description }}</p>
+  </header>
+
+  <div class="bead-app" id="bead-app">
+    <aside class="bead-panel">
+      <label class="bead-drop" id="bead-drop" for="bead-file">
+        <input type="file" id="bead-file" accept="image/*" hidden>
+        <span class="drop-icon" aria-hidden="true">◍</span>
+        <span class="drop-main">点击选择图片</span>
+        <span class="drop-hint">也可以把图片拖进来，或直接 Ctrl+V 粘贴。图片只在你的浏览器里处理，不会上传。</span>
+      </label>
+
+      <div class="bead-field">
+        <div class="bead-field-head"><span>图纸宽度</span><output id="bead-width-out">50 格</output></div>
+        <input type="range" id="bead-width" min="12" max="140" step="1" value="50">
+      </div>
+
+      <div class="bead-field">
+        <div class="bead-field-head"><span>色板</span></div>
+        <select id="bead-palette">
+          <option value="full" selected>MARD 全量 291 色</option>
+          <option value="basic">MARD 基础 221 色</option>
+        </select>
+      </div>
+
+      <div class="bead-field">
+        <div class="bead-field-head"><span>最多用色</span></div>
+        <select id="bead-maxcolors">
+          <option value="8">8 色（最省）</option>
+          <option value="12">12 色</option>
+          <option value="16">16 色</option>
+          <option value="24" selected>24 色</option>
+          <option value="32">32 色</option>
+          <option value="0">不限制</option>
+        </select>
+      </div>
+
+      <div class="bead-field">
+        <div class="bead-field-head"><span>去噪点</span><output id="bead-denoise-out">1 级</output></div>
+        <input type="range" id="bead-denoise" min="0" max="3" step="1" value="1">
+      </div>
+
+      <div class="bead-toggles">
+        <label><input type="checkbox" id="bead-dither"> 抖动（照片更细腻，色号更多）</label>
+        <label><input type="checkbox" id="bead-dropwhite" checked> 去掉纯白背景</label>
+        <label><input type="checkbox" id="bead-grid" checked> 显示网格</label>
+      </div>
+
+      <button type="button" class="btn btn-ghost bead-reset" id="bead-reset">换一张图</button>
+    </aside>
+
+    <section class="bead-stage">
+      <div class="bead-canvas-wrap" id="bead-canvas-wrap">
+        <canvas id="bead-canvas" aria-label="拼豆图纸预览"></canvas>
+        <p class="bead-empty" id="bead-empty">还没有图片 —— 先选一张吧</p>
+      </div>
+      <div class="bead-stats" id="bead-stats">
+        <span><b>—</b> 颗豆</span>
+        <span><b>—</b> 种颜色</span>
+        <span><b>—</b> × <b>—</b> 格</span>
+      </div>
+      <div class="bead-actions">
+        <button type="button" class="btn btn-primary" id="bead-download" disabled>下载图纸 PNG</button>
+        <button type="button" class="btn btn-ghost" id="bead-copy" disabled>复制用量清单</button>
+      </div>
+    </section>
+  </div>
+
+  <section class="bead-counts" id="bead-counts" hidden>
+    <h2>用量清单</h2>
+    <div class="bead-chips" id="bead-chips"></div>
+  </section>
+
+  <div class="content tool-note">
+    {{ .Content }}
+  </div>
+</div>
+
+<script src="/js/mard-palette.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var PALETTES = {
+    full: window.MARD_PALETTE.full.map(function (row) { return { code: row[0], hex: row[1], rgb: hexRgb(row[1]) }; }),
+    basic: window.MARD_PALETTE.basic.map(function (row) { return { code: row[0], hex: row[1], rgb: hexRgb(row[1]) }; })
+  };
+
+  var el = {
+    app: document.getElementById('bead-app'),
+    drop: document.getElementById('bead-drop'),
+    file: document.getElementById('bead-file'),
+    width: document.getElementById('bead-width'),
+    widthOut: document.getElementById('bead-width-out'),
+    palette: document.getElementById('bead-palette'),
+    maxcolors: document.getElementById('bead-maxcolors'),
+    denoise: document.getElementById('bead-denoise'),
+    denoiseOut: document.getElementById('bead-denoise-out'),
+    dither: document.getElementById('bead-dither'),
+    dropwhite: document.getElementById('bead-dropwhite'),
+    grid: document.getElementById('bead-grid'),
+    reset: document.getElementById('bead-reset'),
+    canvas: document.getElementById('bead-canvas'),
+    empty: document.getElementById('bead-empty'),
+    stats: document.getElementById('bead-stats'),
+    counts: document.getElementById('bead-counts'),
+    chips: document.getElementById('bead-chips'),
+    download: document.getElementById('bead-download'),
+    copy: document.getElementById('bead-copy')
+  };
+
+  var state = { bitmap: null, grid: null, W: 0, H: 0, counts: [], total: 0, used: 0 };
+  var timer = null;
+
+  function hexRgb(hex) {
+    var v = parseInt(hex.slice(1), 16);
+    return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+  }
+
+  // 加权 RGB 距离（redmean），比欧氏距离更接近人眼判断
+  function dist(a, b) {
+    var rm = (a[0] + b[0]) / 2;
+    var r = a[0] - b[0], g = a[1] - b[1], bl = a[2] - b[2];
+    return Math.sqrt((2 + rm / 256) * r * r + 4 * g * g + (2 + (255 - rm) / 256) * bl * bl);
+  }
+
+  function nearest(rgb, palette) {
+    var best = 0, bestD = Infinity;
+    for (var i = 0; i < palette.length; i++) {
+      var d = dist(rgb, palette[i].rgb);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  function readFile(file) {
+    if (!file || !/^image\//.test(file.type)) return;
+    createImageBitmap(file, { imageOrientation: 'from-image' }).then(function (bmp) {
+      state.bitmap = bmp;
+      el.empty.hidden = true;
+      schedule();
+    }).catch(function () {
+      el.empty.hidden = false;
+      el.empty.textContent = '这张图读不出来，换一张试试';
+    });
+  }
+
+  // 把图片按格子面积平均取样
+  function sampleCells(bmp, W, H, dropWhite) {
+    var MAX = 1400;
+    var scale = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+    var sw = Math.max(1, Math.round(bmp.width * scale));
+    var sh = Math.max(1, Math.round(bmp.height * scale));
+    var c = document.createElement('canvas');
+    c.width = sw; c.height = sh;
+    var ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(bmp, 0, 0, sw, sh);
+    var data = ctx.getImageData(0, 0, sw, sh).data;
+
+    var cells = new Array(W * H).fill(null);
+    for (var y = 0; y < H; y++) {
+      var y0 = Math.floor(y * sh / H);
+      var y1 = Math.max(y0 + 1, Math.floor((y + 1) * sh / H));
+      for (var x = 0; x < W; x++) {
+        var x0 = Math.floor(x * sw / W);
+        var x1 = Math.max(x0 + 1, Math.floor((x + 1) * sw / W));
+        var r = 0, g = 0, b = 0, a = 0, white = 0, n = 0;
+        for (var yy = y0; yy < y1; yy++) {
+          var idx = (yy * sw + x0) * 4;
+          for (var xx = x0; xx < x1; xx++, idx += 4) {
+            var A = data[idx + 3];
+            r += data[idx] * A; g += data[idx + 1] * A; b += data[idx + 2] * A; a += A; n++;
+            if (A > 200 && data[idx] > 236 && data[idx + 1] > 236 && data[idx + 2] > 236) white++;
+          }
+        }
+        if (!a) continue;
+        if (a / (n * 255) < 0.4) continue;
+        if (dropWhite && n && white / n > 0.75) continue;
+        cells[y * W + x] = [Math.round(r / a), Math.round(g / a), Math.round(b / a)];
+      }
+    }
+    return cells;
+  }
+
+  // k-means++：把整张图的颜色先压到 K 个主色
+  function kmeans(samples, K) {
+    if (!samples.length) return { centroids: [], map: [] };
+    if (K >= samples.length) {
+      return { centroids: samples.slice(), map: samples.map(function (_, i) { return i; }) };
+    }
+    var centroids = [samples[Math.floor(Math.random() * samples.length)].slice()];
+    while (centroids.length < K) {
+      var bestIdx = 0, bestD = -1;
+      for (var i = 0; i < samples.length; i++) {
+        var minD = Infinity;
+        for (var j = 0; j < centroids.length; j++) {
+          var d = dist(samples[i], centroids[j]);
+          if (d < minD) minD = d;
+        }
+        if (minD > bestD) { bestD = minD; bestIdx = i; }
+      }
+      centroids.push(samples[bestIdx].slice());
+    }
+    var map = new Array(samples.length).fill(0);
+    for (var iter = 0; iter < 12; iter++) {
+      var sums = centroids.map(function () { return [0, 0, 0, 0]; });
+      for (var s = 0; s < samples.length; s++) {
+        var bi = 0, bd = Infinity;
+        for (var c = 0; c < centroids.length; c++) {
+          var dd = dist(samples[s], centroids[c]);
+          if (dd < bd) { bd = dd; bi = c; }
+        }
+        map[s] = bi;
+        var acc = sums[bi];
+        acc[0] += samples[s][0]; acc[1] += samples[s][1]; acc[2] += samples[s][2]; acc[3]++;
+      }
+      for (var k = 0; k < centroids.length; k++) {
+        var a2 = sums[k];
+        if (a2[3]) centroids[k] = [a2[0] / a2[3], a2[1] / a2[3], a2[2] / a2[3]];
+      }
+    }
+    return { centroids: centroids, map: map };
+  }
+
+  // Floyd–Steinberg 抖动：直接映射到色板
+  function ditherToPalette(cells, W, H, palette) {
+    var buf = cells.map(function (c) { return c ? c.slice() : null; });
+    var out = new Array(W * H).fill(-1);
+    for (var y = 0; y < H; y++) {
+      for (var x = 0; x < W; x++) {
+        var i = y * W + x;
+        var cur = buf[i];
+        if (!cur) continue;
+        var pi = nearest([clamp(cur[0]), clamp(cur[1]), clamp(cur[2])], palette);
+        out[i] = pi;
+        var err = [cur[0] - palette[pi].rgb[0], cur[1] - palette[pi].rgb[1], cur[2] - palette[pi].rgb[2]];
+        spread(buf, W, H, x + 1, y, err, 7 / 16);
+        spread(buf, W, H, x - 1, y + 1, err, 3 / 16);
+        spread(buf, W, H, x, y + 1, err, 5 / 16);
+        spread(buf, W, H, x + 1, y + 1, err, 1 / 16);
+      }
+    }
+    return out;
+  }
+
+  function spread(buf, W, H, x, y, err, f) {
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    var c = buf[y * W + x];
+    if (!c) return;
+    c[0] += err[0] * f; c[1] += err[1] * f; c[2] += err[2] * f;
+  }
+
+  function clamp(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+  // 去掉孤立的零星点（拼豆时最烦的那种）
+  function denoise(grid, W, H, level, palette) {
+    if (level <= 0) return grid;
+    var out = grid.slice();
+    for (var pass = 0; pass < level; pass++) {
+      var src = out.slice();
+      for (var y = 1; y < H - 1; y++) {
+        for (var x = 1; x < W - 1; x++) {
+          var i = y * W + x, c = src[i];
+          if (c < 0) continue;
+          var tally = {};
+          for (var dy = -1; dy <= 1; dy++) {
+            for (var dx = -1; dx <= 1; dx++) {
+              if (!dx && !dy) continue;
+              var v = src[(y + dy) * W + (x + dx)];
+              if (v >= 0) tally[v] = (tally[v] || 0) + 1;
+            }
+          }
+          var bestC = -1, bestN = 0;
+          for (var k in tally) if (tally[k] > bestN) { bestN = tally[k]; bestC = +k; }
+          if (bestC >= 0 && bestC !== c && bestN >= 6 &&
+              dist(palette[c].rgb, palette[bestC].rgb) < 46) {
+            out[i] = bestC;
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  function rebuild() {
+    if (!state.bitmap) return;
+    var W = +el.width.value;
+    var H = Math.max(1, Math.round(W * state.bitmap.height / state.bitmap.width));
+    var palette = PALETTES[el.palette.value];
+    var dropWhite = el.dropwhite.checked;
+    var cells = sampleCells(state.bitmap, W, H, dropWhite);
+    var grid;
+
+    var idxList = [], samples = [];
+    for (var i = 0; i < cells.length; i++) {
+      if (cells[i]) { idxList.push(i); samples.push(cells[i]); }
+    }
+    if (!samples.length) { grid = new Array(W * H).fill(-1); }
+    else if (el.dither.checked) {
+      grid = ditherToPalette(cells, W, H, palette);
+    } else {
+      var cap = +el.maxcolors.value;
+      var uniq = {};
+      samples.forEach(function (s) { uniq[s.join(',')] = 1; });
+      var K = cap > 0 ? Math.min(cap, Object.keys(uniq).length) : Math.min(64, Object.keys(uniq).length);
+      var km = kmeans(samples, K);
+      var centroidPalette = km.centroids.map(function (c) { return nearest(c, palette); });
+      grid = new Array(W * H).fill(-1);
+      for (var s = 0; s < idxList.length; s++) grid[idxList[s]] = centroidPalette[km.map[s]];
+    }
+
+    grid = denoise(grid, W, H, +el.denoise.value, palette);
+
+    var counts = new Map();
+    var total = 0;
+    for (var g = 0; g < grid.length; g++) {
+      var pi = grid[g];
+      if (pi < 0) continue;
+      counts.set(pi, (counts.get(pi) || 0) + 1);
+      total++;
+    }
+
+    state.grid = grid;
+    state.W = W; state.H = H; state.total = total; state.used = counts.size;
+    state.counts = Array.from(counts.entries())
+      .map(function (e) { return { code: palette[e[0]].code, hex: palette[e[0]].hex, n: e[1] }; })
+      .sort(function (a, b) { return b.n - a.n; });
+
+    draw(W, H, grid, palette);
+    updateStats();
+    renderChips();
+    el.download.disabled = false;
+    el.copy.disabled = false;
+  }
+
+  function draw(W, H, grid, palette) {
+    var cell = Math.max(4, Math.min(24, Math.floor(1120 / Math.max(W, H))));
+    var showGrid = el.grid.checked;
+    var showCodes = cell >= 17 && W * H <= 6000;
+    var canvas = el.canvas;
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = W * cell * dpr;
+    canvas.height = H * cell * dpr;
+    canvas.style.width = (W * cell) + 'px';
+    canvas.style.height = (H * cell) + 'px';
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W * cell, H * cell);
+
+    for (var y = 0; y < H; y++) {
+      for (var x = 0; x < W; x++) {
+        var pi = grid[y * W + x];
+        if (pi < 0) continue;
+        ctx.fillStyle = palette[pi].hex;
+        ctx.fillRect(x * cell, y * cell, cell, cell);
+        if (showCodes) {
+          ctx.fillStyle = luminance(palette[pi].rgb) > 150 ? 'rgba(0,0,0,.62)' : 'rgba(255,255,255,.72)';
+          ctx.font = Math.max(7, Math.round(cell * 0.42)) + 'px ui-monospace, Menlo, Consolas, monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(palette[pi].code, x * cell + cell / 2, y * cell + cell / 2 + 0.5);
+        }
+      }
+    }
+
+    if (showGrid) {
+      ctx.strokeStyle = 'rgba(0,0,0,.14)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var gx = 0; gx <= W; gx++) {
+        var px = Math.round(gx * cell) + 0.5;
+        ctx.moveTo(px, 0); ctx.lineTo(px, H * cell);
+      }
+      for (var gy = 0; gy <= H; gy++) {
+        var py = Math.round(gy * cell) + 0.5;
+        ctx.moveTo(0, py); ctx.lineTo(W * cell, py);
+      }
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(0,0,0,.42)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (var mx = 0; mx <= W; mx += 10) {
+        var mxp = Math.round(mx * cell) + 0.5;
+        ctx.moveTo(mxp, 0); ctx.lineTo(mxp, H * cell);
+      }
+      for (var my = 0; my <= H; my += 10) {
+        var myp = Math.round(my * cell) + 0.5;
+        ctx.moveTo(0, myp); ctx.lineTo(W * cell, myp);
+      }
+      ctx.stroke();
+    }
+  }
+
+  function luminance(rgb) { return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]; }
+
+  function updateStats() {
+    var nums = el.stats.querySelectorAll('b');
+    nums[0].textContent = state.total;
+    nums[1].textContent = state.used;
+    nums[2].textContent = state.W;
+    nums[3].textContent = state.H;
+  }
+
+  function renderChips() {
+    if (!state.counts.length) { el.counts.hidden = true; return; }
+    el.counts.hidden = false;
+    el.chips.innerHTML = state.counts.map(function (c) {
+      return '<span class="bead-chip"><i style="background:' + c.hex + '"></i>' +
+        '<b>' + c.code + '</b><span>' + c.n + '</span></span>';
+    }).join('');
+  }
+
+  function schedule() {
+    clearTimeout(timer);
+    timer = setTimeout(rebuild, 180);
+  }
+
+  el.file.addEventListener('change', function (e) { readFile(e.target.files[0]); });
+  el.drop.addEventListener('dragover', function (e) { e.preventDefault(); el.drop.classList.add('is-over'); });
+  el.drop.addEventListener('dragleave', function () { el.drop.classList.remove('is-over'); });
+  el.drop.addEventListener('drop', function (e) {
+    e.preventDefault();
+    el.drop.classList.remove('is-over');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+  });
+  window.addEventListener('paste', function (e) {
+    var items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') === 0) { readFile(items[i].getAsFile()); break; }
+    }
+  });
+
+  el.width.addEventListener('input', function () {
+    el.widthOut.textContent = el.width.value + ' 格';
+    schedule();
+  });
+  el.denoise.addEventListener('input', function () {
+    el.denoiseOut.textContent = el.denoise.value + ' 级';
+    schedule();
+  });
+  ['change', 'input'].forEach(function (evt) {
+    [el.palette, el.maxcolors, el.dither, el.dropwhite, el.grid].forEach(function (node) {
+      node.addEventListener(evt, schedule);
+    });
+  });
+
+  el.reset.addEventListener('click', function () {
+    el.file.value = '';
+    state.bitmap = null;
+    el.canvas.width = el.canvas.height = 0;
+    el.empty.hidden = false;
+    el.empty.textContent = '还没有图片 —— 先选一张吧';
+    el.download.disabled = true;
+    el.copy.disabled = true;
+    el.counts.hidden = true;
+    var nums = el.stats.querySelectorAll('b');
+    nums[0].textContent = '—'; nums[1].textContent = '—'; nums[2].textContent = '—'; nums[3].textContent = '—';
+  });
+
+  el.download.addEventListener('click', function () {
+    if (!state.grid) return;
+    var W = state.W, H = state.H, palette = PALETTES[el.palette.value];
+    var cell = Math.max(10, Math.min(28, Math.floor(1600 / Math.max(W, H))));
+    var out = document.createElement('canvas');
+    out.width = W * cell; out.height = H * cell;
+    var ctx = out.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, out.width, out.height);
+    for (var y = 0; y < H; y++) {
+      for (var x = 0; x < W; x++) {
+        var pi = state.grid[y * W + x];
+        if (pi < 0) continue;
+        ctx.fillStyle = palette[pi].hex;
+        ctx.fillRect(x * cell, y * cell, cell, cell);
+        if (cell >= 18) {
+          ctx.fillStyle = luminance(palette[pi].rgb) > 150 ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.7)';
+          ctx.font = Math.round(cell * 0.4) + 'px ui-monospace, Menlo, Consolas, monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(palette[pi].code, x * cell + cell / 2, y * cell + cell / 2);
+        }
+      }
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var i = 0; i <= W; i++) { ctx.moveTo(i * cell + 0.5, 0); ctx.lineTo(i * cell + 0.5, H * cell); }
+    for (var j = 0; j <= H; j++) { ctx.moveTo(0, j * cell + 0.5); ctx.lineTo(W * cell, j * cell + 0.5); }
+    ctx.stroke();
+
+    out.toBlob(function (blob) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'perler-' + W + 'x' + H + '-' + Date.now() + '.png';
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    }, 'image/png');
+  });
+
+  el.copy.addEventListener('click', function () {
+    if (!state.counts.length) return;
+    var lines = state.counts.map(function (c) { return c.code + '\t' + c.n; });
+    var text = '拼豆用量清单（' + state.W + '×' + state.H + '，共 ' + state.total + ' 颗）\n' + lines.join('\n');
+    var done = function () {
+      el.copy.textContent = '已复制 ✓';
+      setTimeout(function () { el.copy.textContent = '复制用量清单'; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(fallback);
+    } else fallback();
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (err) { alert(text); }
+      document.body.removeChild(ta);
+    }
+  });
+})();
+</script>
+{{ end }}
