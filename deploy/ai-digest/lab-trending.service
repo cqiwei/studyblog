@@ -1,0 +1,11 @@
+[Unit]
+Description=灵光一现：GitHub Trending 每日点评（抓取趋势 → LLM 点评 → 发布）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/ai-digest.conf
+ExecStart=/usr/bin/python3 /usr/local/bin/lab-trending.py
+Nice=10
+TimeoutStartSec=900

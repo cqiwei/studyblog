@@ -469,7 +469,7 @@ bash /tmp/ai-digest-src/install-ai-digest.sh /tmp/ai-digest-src
 ```
 LLM_API_KEY=ms-xxxx             # 必填，魔搭令牌（modelscope.cn/my/myaccesstoken）
 LLM_BASE_URL=https://api-inference.modelscope.cn/v1
-LLM_MODEL=deepseek-ai/DeepSeek-V4.1-Flash
+LLM_MODEL=ZhipuAI/GLM-5.2
 GITHUB_TOKEN=ghp_xxx            # 可选，GitHub API 限额更高
 CF_API_TOKEN=xxx                # 可选，发布后自动清 Cloudflare 缓存
 AI_RSSHUB_URLS=...              # 可选，RSSHub 源（如推特列表）
@@ -486,6 +486,30 @@ python3 /usr/local/bin/ai-digest.py --dry-run  # 只抓取+挑选，不发布
 ```
 
 文章落在 `content/ai/ai-daily-YYYY-MM-DD.md`，标题「AI 前哨日报 · YYYY-MM-DD」，标签 `AI`/`日报`；同一天重复运行会跳过（文件已存在），全源抓空则当天不生成。
+
+## 灵光一现：GitHub Trending 每日点评（每天 01:35 自动发布）
+
+同一目录里的 `lab-trending.py` 是第二个流水线，共用 `/etc/ai-digest.conf` 的凭据：
+
+```
+lab-trending.timer (北京时间 01:35)
+  └→ lab-trending.service
+       └→ /usr/local/bin/lab-trending.py
+            抓 github.com/trending?since=daily 前 10 个仓库
+            → 逐个拉 README（README.md / zh-CN / rst，代码块剔除，截 4000 字）
+            → LLM 写趋势观察 + 每仓「是什么 / 能干嘛 / 适合谁」点评
+            → content/lab/git-trending-YYYY-MM-DD.md，发布流程同日报
+```
+
+日常操作：
+
+```bash
+systemctl list-timers lab-trending.timer        # 看下次运行时间
+systemctl start lab-trending                    # 手动跑一次
+python3 /usr/local/bin/lab-trending.py --dry-run  # 只抓取，不调用 LLM 不发布
+```
+
+点评要求 LLM 只依据 README 与趋势数据写作，不编造功能；LLM 失败时自动降级为纯聚合列表（含语言/星数/今日新增）。
 
 ---
 

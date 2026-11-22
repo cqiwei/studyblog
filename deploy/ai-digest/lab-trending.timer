@@ -1,0 +1,10 @@
+[Unit]
+Description=每天 01:35 生成 GitHub Trending 每日点评
+
+[Timer]
+OnCalendar=*-*-* 01:35:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
