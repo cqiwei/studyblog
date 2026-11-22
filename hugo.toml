@@ -13,7 +13,7 @@ summaryLength = 70
   pagerSize = 10
 
 [params]
-  author = "你的名字"
+  author = "蔚来实验室"
   description = "收集 AI 前沿，复刻灵光一现，记录建站之路，顺手造点实用工具。"
   since = 2026
   footer = "用 Hugo 构建，跑在自己的 VPS 上。"

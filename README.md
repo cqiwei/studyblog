@@ -513,6 +513,29 @@ python3 /usr/local/bin/lab-trending.py --dry-run  # 只抓取，不调用 LLM �
 
 ---
 
+## 工具箱（纯前端小工具）
+
+工具页全部在浏览器里跑，不经过服务器：上传的图片/文本从不离开本机，所以**不需要后端、不占流量、不会被滥用**。
+
+一个工具的组成（以拼豆图纸生成器为例）：
+
+```
+content/tools/perler-beads.md     # front matter 里 layout: "perler" 指向自定义模板
+layouts/tools/perler.html         # 页面结构 + 内联 JS（{{ define "main" }}）
+static/js/mard-palette.js         # 需要的静态数据（MARD 291 色板）
+assets/css/main.css 里的 .bead-*   # 样式
+```
+
+**拼豆图纸生成器**（`/tools/perler-beads/`）：图片 → MARD 拼豆色号图纸。
+
+- 色板：MARD 291 色（基础 221 + 扩展 70），由 `static/js/mard-palette.js` 提供（数据来自 MIT 授权的 Jett-Wu/Perler_Beads_Generator）。
+- 管线：`sampleCells()` 按格面积做 alpha 加权平均（可去纯白背景）→ `kmeans()` k-means++ 把颜色压到「最多用色」→ `nearest()` 用 redmean 距离映射到色号（或改为 Floyd–Steinberg 抖动）→ `denoise()` 把孤立豆子并进周围颜色 → `draw()` 渲染网格与色号 → 统计用量。
+- 格子 ≥17px 时叠加色号；每 10 格一条粗线，方便数。
+
+加新工具的最短路径：`content/tools/<slug>.md` 写 `layout: "<name>"` + `layouts/tools/<name>.html`，样式和脚本都内联在里面即可；共享数据放 `static/js/`。
+
+---
+
 ## 回滚
 
 ```bash
