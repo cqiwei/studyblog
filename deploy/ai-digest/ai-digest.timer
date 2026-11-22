@@ -1,0 +1,11 @@
+[Unit]
+Description=AI 前哨日报每天凌晨 1 点（北京时间）生成
+
+[Timer]
+# systemd 支持「时刻 + 时区」写法：北京时间每天 01:00
+OnCalendar=*-*-* 01:00:00 Asia/Shanghai
+Persistent=true
+Unit=ai-digest.service
+
+[Install]
+WantedBy=timers.target

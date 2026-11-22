@@ -25,8 +25,8 @@ DB_PATH = os.environ.get("VIEWS_DB", "/var/lib/blogviews/views.db")
 PORT = int(os.environ.get("VIEWS_PORT", "8099"))
 HOST = "127.0.0.1"
 
-# 只接受文章详情页，避免有人往库里塞乱七八糟的路径
-PATH_RE = re.compile(r"^/posts/[A-Za-z0-9][A-Za-z0-9._-]*/$")
+# 只接受文章详情页（posts / ai / lab / build 四个板块），防止脏数据
+PATH_RE = re.compile(r"^/(posts|ai|lab|build)/[A-Za-z0-9][A-Za-z0-9._-]*/$")
 BOT_RE = re.compile(
     r"bot|spider|crawl|slurp|headless|preview|monitor|uptime|curl|wget|"
     r"python-requests|httpclient|go-http-client|facebookexternalhit",

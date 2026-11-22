@@ -2,6 +2,8 @@
 <div class="container post-wrap">
   {{ if eq .Section "posts" }}
   <a class="back-link" href="{{ "/posts/" | relURL }}">← 返回文章列表</a>
+  {{ else if in (slice "ai" "lab" "build") .Section }}
+  {{ with .Parent }}<a class="back-link" href="{{ .RelPermalink }}">← 返回{{ .Title }}</a>{{ end }}
   {{ end }}
 
   <article class="post">
@@ -24,7 +26,7 @@
       {{ .Content }}
     </div>
 
-    {{ if eq .Section "posts" }}
+    {{ if in (slice "posts" "ai" "lab" "build") .Section }}
     <p class="post-views" data-path="{{ .RelPermalink }}" hidden>
       <span class="views-num">—</span>
       <span class="views-label">次阅读</span>

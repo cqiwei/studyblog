@@ -437,6 +437,54 @@ curl -s -o /dev/null -w '%{http_code}\n' https://你的域名/stats/ # 401（没
 
 ---
 
+## AI 前哨日报（每天 01:00 自动发布）
+
+`deploy/ai-digest/` 是一套跑在服务器上的自动日报流水线：
+
+```
+ai-digest.timer (北京时间 01:00)
+  └→ ai-digest.service
+       └→ /usr/local/bin/ai-digest.py
+            抓取（量子位/TechCrunch/The Verge RSS + HN Algolia + arXiv API + GitHub 搜索）
+            → sqlite 去重（seen.db，保留 90 天）
+            → 按权重+新鲜度挑 22 条（arXiv 保底 4 条，中文源保底 3 条）
+            → DeepSeek 总结（没配 key 时发纯聚合版）
+            → git commit+push → hugo 构建 → 翻 release 软链 → purge Cloudflare
+```
+
+安装（源码先传上去）：
+
+```bash
+# 本地
+scp deploy/ai-digest/* root@服务器IP:/tmp/ai-digest-src/
+
+# 服务器
+bash /tmp/ai-digest-src/install-ai-digest.sh /tmp/ai-digest-src
+```
+
+脚本会装 hugo、生成服务器自己的 SSH 部署密钥并**打印公钥**——把它加到 GitHub 仓库 `Settings → Deploy keys`，**勾选 Allow write access**（日报是服务端 commit+push，必须能写）。克隆失败就加完密钥后手动 `git clone git@github.com:<user>/<repo>.git /opt/blogrepo` 再重跑脚本。
+
+凭据写在 `/etc/ai-digest.conf`（600）：
+
+```
+DEEPSEEK_API_KEY=sk-xxxx        # 必填，DeepSeek 总结
+GITHUB_TOKEN=ghp_xxx            # 可选，GitHub API 限额更高
+CF_API_TOKEN=xxx                # 可选，发布后自动清 Cloudflare 缓存
+AI_RSSHUB_URLS=...              # 可选，RSSHub 源（如推特列表、机器之心）
+```
+
+日常操作：
+
+```bash
+systemctl list-timers ai-digest.timer          # 看下次运行时间
+systemctl start ai-digest                      # 手动跑一次（journalctl -u ai-digest 看日志）
+python3 /usr/local/bin/ai-digest.py --dry-run  # 只抓取+挑选，不发布
+```
+
+文章落在 `content/ai/ai-daily-YYYY-MM-DD.md`，标题「AI 前哨日报 · YYYY-MM-DD」，标签 `AI`/`日报`；同一天重复运行会跳过（文件已存在），全源抓空则当天不生成。
+
+---
+
 ## 回滚
 
 ```bash

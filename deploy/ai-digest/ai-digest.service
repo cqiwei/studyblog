@@ -1,0 +1,14 @@
+[Unit]
+Description=AI 前哨日报生成（抓取信息源 → DeepSeek 总结 → 发布）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# 凭据都在 /etc/ai-digest.conf（600，root only）
+EnvironmentFile=-/etc/ai-digest.conf
+ExecStart=/usr/local/bin/ai-digest.py
+# 1C1G 小机器，构建时内存紧张，加 swap 保护
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=600
