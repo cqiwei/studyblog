@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# 后台与接口不参与索引
+Disallow: /stats/
+Disallow: /api/
+
+# 站点地图
+Sitemap: {{ "sitemap.xml" | absURL }}

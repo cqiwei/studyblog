@@ -1,0 +1,12 @@
+[Unit]
+Description=每日访问摘要（生成 /stats/daily/）
+Documentation=https://aiqivy.com/stats/daily/
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Nice=10
+EnvironmentFile=-/etc/ai-digest.conf
+ExecStart=/usr/bin/python3 /usr/local/bin/stats-daily.py
+TimeoutStartSec=300

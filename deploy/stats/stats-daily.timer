@@ -1,0 +1,10 @@
+[Unit]
+Description=每天 00:10 生成访问摘要
+
+[Timer]
+OnCalendar=*-*-* 00:10:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

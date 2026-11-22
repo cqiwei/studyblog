@@ -397,6 +397,39 @@ firewall-cmd --zone=public --remove-rich-rule='rule family="ipv4" source address
 
 ---
 
+## 挡掉扫描器（nginx blocklist）
+
+静态博客有个特点：**流量里九成是扫描器**。它们挨个试 `/.env`、`/wp-login.php`、`/phpmyadmin/`，把日志刷成 404 海洋，也让报表彻底失真。
+
+`deploy/security/nginx-blocklist.conf` 用两条路解决：
+
+- 名单：反复扫的固定 IP 直接 `deny`（按 /24 连坐）；
+- 特征：`.git` `.svn` `.env`、任何 `php/asp/jsp/cgi` 后缀、`wp-*` `xmlrpc.php` `phpmyadmin` `config.json` `.ssh` `.aws` 这类路径，一律 `access_log off; return 444;` —— 连响应都不给，日志里也不留。
+
+安装（幂等，会自己找到 443 的 `server{}` 插入 include）：
+
+```bash
+scp deploy/security/* root@服务器IP:/tmp/
+ssh root@服务器IP 'bash /tmp/install-blocklist.sh'
+```
+
+验证「掐断」是正常的：`curl` 那些路径会返回 **000**（连接直接被关掉），而正常页面照旧 200。
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://你的域名/.env        # 000
+curl -s -o /dev/null -w '%{http_code}\n' https://你的域名/            # 200
+```
+
+> 顺序很重要：include 要放在 `server{}` 顶部（`charset utf-8;` 之后），让这些正则先于静态资源那条 `location ~* \.(css|js|png|ico)$` 命中。
+
+## 站点图标与 robots.txt
+
+- 图标由 `tools/make_favicon.py`（纯 Pillow）生成，产物直接放进 `static/`：`favicon.ico`（16/32/48）、`favicon-32.png`、`favicon-16.png`、`apple-touch-icon.png`、`icon-512.png`，外加 `site.webmanifest`（Android 加到桌面用）。
+- `layouts/partials/head.html` 里挂了 5 个 `<link>` 和一个 `theme-color`；`layout/robots.txt` 放行全站，只屏蔽 `/stats/` 和 `/api/`，并指向 sitemap。
+- nginx 自带的 `mime.types` 不认 `.webmanifest`，会发成 `application/octet-stream`，所以 `deploy/nginx/blog.conf` 里单独给它加了 `default_type application/manifest+json;`。
+
+---
+
 ## 访问统计（阅读数 + 报表）
 
 两套东西，互相独立，装一次就行：
@@ -404,6 +437,7 @@ firewall-cmd --zone=public --remove-rich-rule='rule family="ipv4" source address
 - **文章页的阅读数**：`deploy/stats/blog-views.py`，Python 标准库写的计数服务，只监听 `127.0.0.1:8099`，SQLite 存在 `/var/lib/blogviews/views.db`。nginx 把 `POST/GET /api/views` 反代给它。
 - **站点访问报表**：goaccess 每 5 分钟把 nginx 日志汇总成一张静态 HTML，放在 `/var/www/blog-stats/index.html`，由 `/stats/` 提供，带 Basic Auth。
 - **页脚在线人数**：同一个计数服务提供的 `GET /api/online`，内存里记「最近 3 分钟出现过的访客」，页脚脚本每 60 秒心跳一次；重启服务即清零，不落盘。
+- **每日摘要**：`deploy/stats/stats-daily.py` 每天 00:10 把前一天的日志压成一页 `/stats/daily/`，把「总请求 / 真实请求 / 阅读数 / 热门页面 / 状态码 / 来源 / 探测」分开放，顺便把结果写进 `systemctl status stats-daily` 的日志里。
 
 安装（源码先传上去）：
 
@@ -434,6 +468,27 @@ curl -s -o /dev/null -w '%{http_code}\n' https://你的域名/stats/ # 401（没
 - `/api/views` 全部 `Cache-Control: no-store`，Cloudflare 也不会缓存（响应里 `cf-cache-status: DYNAMIC`）。
 - 报表的身份验证靠 `/etc/nginx/.htpasswd`；`install-stats.sh` 是幂等的，重跑会重新生成密码。
 - 日志轮转后 goaccess 靠 `--persist --restore` 的数据库保住历史，不会因为日志删了就清零。
+
+### 每日摘要（/stats/daily/）
+
+```bash
+scp deploy/stats/stats-daily.py deploy/stats/stats-daily.service \
+    deploy/stats/stats-daily.timer deploy/stats/install-daily.sh root@服务器IP:/tmp/
+ssh root@服务器IP 'bash /tmp/install-daily.sh'
+```
+
+跑完就有 `https://你的域名/stats/daily/`（跟 `/stats/` 共用同一套 Basic Auth）。它和 goaccess 报表的区别是**口径**：
+
+| 指标 | 含义 |
+| --- | --- |
+| 总请求 / 独立 IP | 原始日志，绝大多数是扫描器 |
+| 真实请求 | 剔掉 UA 里的 bot/爬虫、以及 `/.env`、`.php`、`wp-*` 这类探测路径 |
+| 文章阅读 | 来自 `views.db`，只统计真正打开了文章页的浏览器，**这才是可信数字** |
+| 探测与扫描 | 被 blocklist 掐断或撞 404 的路径排行 |
+
+历史存在 `/var/lib/blogstats/daily.json`，保留 30 天，页面上显示最近 14 天。想让摘要推送到别处，就在 `/etc/ai-digest.conf` 里加 `STATS_WEBHOOK_URL=...`（POST 一个 `{"text": "..."}` 的 JSON）。
+
+> 想回看某一天：`sudo /usr/bin/python3 /usr/local/bin/stats-daily.py 2026-11-21`，会覆盖当天那条记录。
 
 ---
 
