@@ -41,7 +41,7 @@ CURRENT_LINK = "/var/www/blog/current"
 # 也可以换 DeepSeek 官方（LLM_BASE_URL=https://api.deepseek.com/v1）
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "") or os.environ.get("DEEPSEEK_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api-inference.modelscope.cn/v1")
-LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-ai/DeepSeek-V4.1-Flash")
+LLM_MODEL = os.environ.get("LLM_MODEL", "ZhipuAI/GLM-5.2")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
 CF_ZONE_NAME = os.environ.get("CF_ZONE_NAME", "aiqivy.com")
@@ -91,7 +91,7 @@ def load_conf():
     globals().update(
         LLM_API_KEY=os.environ.get("LLM_API_KEY", "") or os.environ.get("DEEPSEEK_API_KEY", ""),
         LLM_BASE_URL=os.environ.get("LLM_BASE_URL", "https://api-inference.modelscope.cn/v1"),
-        LLM_MODEL=os.environ.get("LLM_MODEL", "deepseek-ai/DeepSeek-V4.1-Flash"),
+        LLM_MODEL=os.environ.get("LLM_MODEL", "ZhipuAI/GLM-5.2"),
         GITHUB_TOKEN=os.environ.get("GITHUB_TOKEN", ""),
         CF_API_TOKEN=os.environ.get("CF_API_TOKEN", ""),
         RSSHUB_URLS=[u for u in os.environ.get("AI_RSSHUB_URLS", "").split(",") if u],
@@ -333,6 +333,18 @@ def pick(items, limit=22):
         if src != "arXiv":
             non_arxiv += 1
         picked.append(item)
+    # 板块保底：论文 / 开源 / HN 至少 N 条（有货的话），不让日报出现空板块
+    mins = {"arXiv": 4, "GitHub": 3, "Hacker News": 2}
+    for src, minimum in mins.items():
+        have = sum(1 for i in picked if i["source"] == src)
+        target = min(minimum, sum(1 for i in items if i["source"] == src))
+        for item in items:
+            if have >= target:
+                break
+            if item["source"] == src and item not in picked:
+                picked.append(item)
+                counts[src] = counts.get(src, 0) + 1
+                have += 1
     # 中文来源保底
     cn_sources = {"量子位", "机器之心"}
     cn_target = min(3, sum(1 for i in items if i["source"] in cn_sources))
@@ -380,7 +392,8 @@ def subprocess_run_llm(material):
     payload = {
         "model": LLM_MODEL,
         "temperature": 0.5,
-        "max_tokens": 3500,
+        # 推理型模型会把思维链算进 max_tokens，给足余量防止正文被截断
+        "max_tokens": 12000,
         "messages": [
             {"role": "system",
              "content": "你是一位中文科技编辑，负责给「AI 前哨日报」写内容。"
@@ -406,7 +419,13 @@ def subprocess_run_llm(material):
         method="POST")
     with urllib.request.urlopen(req, timeout=300) as resp:
         data = json.loads(resp.read())
-    return data["choices"][0]["message"]["content"].strip()
+    choice = data["choices"][0]
+    content = (choice["message"].get("content") or "").strip()
+    finish = choice.get("finish_reason", "")
+    if len(content) < 200:  # 推理 token 吃光预算时正文会只剩个 "##"
+        raise ValueError(
+            f"LLM 正文过短（finish={finish}, content_len={len(content)}），疑似被截断")
+    return content
 
 
 def aggregate_fallback(items):

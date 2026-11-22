@@ -79,7 +79,7 @@ cat > /etc/ai-digest.conf <<'EOF'
 LLM_API_KEY=
 # LLM_API_KEY=ms-xxxxxx            ← 魔搭令牌（modelscope.cn/my/myaccesstoken）
 # LLM_BASE_URL=https://api-inference.modelscope.cn/v1
-# LLM_MODEL=deepseek-ai/DeepSeek-V4.1-Flash
+# LLM_MODEL=ZhipuAI/GLM-5.2
 # 换 DeepSeek 官方时：
 # LLM_BASE_URL=https://api.deepseek.com/v1
 # LLM_MODEL=deepseek-chat
