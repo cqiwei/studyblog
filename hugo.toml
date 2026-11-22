@@ -3,7 +3,7 @@
 baseURL = "https://aiqivy.com/"
 locale = "zh-CN"
 defaultContentLanguage = "zh"
-title = "海边小屋"
+title = "蔚来实验室"
 enableRobotsTXT = true
 hasCJKLanguage = true
 summaryLength = 70
@@ -14,7 +14,7 @@ summaryLength = 70
 
 [params]
   author = "你的名字"
-  description = "记录学习、折腾和一点点生活。"
+  description = "收集 AI 前沿，复刻灵光一现，记录建站之路，顺手造点实用工具。"
   since = 2026
   footer = "用 Hugo 构建，跑在自己的 VPS 上。"
 
@@ -27,16 +27,31 @@ summaryLength = 70
     unsafe = true         # 允许在 Markdown 里写原始 HTML（自己写的东西，风险可控）
 
 [[menu.main]]
-  name = "文章"
-  pageRef = "/posts"
+  name = "AI 前哨"
+  pageRef = "/ai"
   weight = 10
 
 [[menu.main]]
-  name = "标签"
-  pageRef = "/tags"
+  name = "灵光一现"
+  pageRef = "/lab"
   weight = 20
+
+[[menu.main]]
+  name = "建站之路"
+  pageRef = "/build"
+  weight = 30
+
+[[menu.main]]
+  name = "工具箱"
+  pageRef = "/tools"
+  weight = 40
+
+[[menu.main]]
+  name = "趣味天地"
+  pageRef = "/fun"
+  weight = 50
 
 [[menu.main]]
   name = "关于"
   pageRef = "/about"
-  weight = 30
+  weight = 60

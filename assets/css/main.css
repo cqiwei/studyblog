@@ -1,5 +1,5 @@
 /* ============================================================
-   海边小屋 · 主题样式
+   蔚来实验室 · 主题样式
    纸感底色 + 极光渐层 + 玻璃卡片
    ============================================================ */
 
@@ -776,3 +776,30 @@ a:hover { text-decoration: none; }
   }
   .card { opacity: 1; }
 }
+
+/* ---------- 板块导航 ---------- */
+.hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin: 0 0 64px;
+}
+.hub-card {
+  display: block;
+  padding: 18px 20px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  backdrop-filter: blur(8px);
+  color: var(--fg);
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.hub-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent-2);
+  box-shadow: var(--shadow);
+  color: var(--fg);
+}
+.hub-icon { font-size: 1.5rem; line-height: 1; display: inline-block; margin-bottom: 10px; }
+.hub-name { font-family: var(--font-serif); font-size: 1.02rem; font-weight: 700; }
+.hub-desc { margin-top: 6px; font-size: 0.82rem; color: var(--muted); line-height: 1.55; }

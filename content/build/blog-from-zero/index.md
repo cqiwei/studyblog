@@ -3,6 +3,7 @@ title: "从域名到上线：一个人搭独立博客的完整流程"
 date: 2026-11-21T12:00:00+08:00
 tags: ["建站", "Hugo", "入门"]
 description: "买域名、配 GitHub、写 Hugo、挂 Nginx、签证书、套 Cloudflare——把这条链路从头走一遍，顺便记下我踩过的每一个坑。"
+aliases: ["/posts/blog-from-zero/"]
 ---
 
 这个站是自己搭的：域名在 Cloudflare，代码在 GitHub，页面跑在一台 1 核 1G 的小 VPS 上，发布一条命令。

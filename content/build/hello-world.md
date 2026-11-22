@@ -4,6 +4,7 @@ date: 2026-11-21T08:00:00+08:00
 draft: false
 tags: ["建站", "hugo"]
 description: "从一台 1 核 1G 的小机器开始，把博客搭起来。"
+aliases: ["/posts/hello-world/"]
 ---
 
 ## 为什么是静态站

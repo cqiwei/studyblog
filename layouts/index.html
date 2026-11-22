@@ -5,26 +5,52 @@
     <h1>{{ site.Title }}</h1>
     {{ with site.Params.description }}<p class="lead">{{ . }}</p>{{ end }}
     <div class="hero-actions">
-      <a class="btn btn-primary" href="{{ "/posts/" | relURL }}">开始阅读</a>
+      <a class="btn btn-primary" href="#sections">开始探索</a>
       <a class="btn btn-ghost" href="{{ "/about/" | relURL }}">关于这里</a>
     </div>
   </div>
 </section>
 
-{{ $posts := where site.RegularPages "Section" "posts" }}
-{{ $posts = where $posts "Draft" false }}
+<div class="container wide" id="sections">
+  <div class="section-head">
+    <h2 class="section-title">五个板块</h2>
+  </div>
+  <div class="hub-grid">
+    <a class="hub-card" href="{{ "/ai/" | relURL }}">
+      <span class="hub-icon">📡</span>
+      <div class="hub-name">AI 前哨</div>
+      <p class="hub-desc">收集、转载、总结值得看的 AI 信息，不做纯搬运。</p>
+    </a>
+    <a class="hub-card" href="{{ "/lab/" | relURL }}">
+      <span class="hub-icon">💡</span>
+      <div class="hub-name">灵光一现</div>
+      <p class="hub-desc">复刻 GitHub 上的热门案例，把实现思路拆给你看。</p>
+    </a>
+    <a class="hub-card" href="{{ "/build/" | relURL }}">
+      <span class="hub-icon">🧱</span>
+      <div class="hub-name">建站之路</div>
+      <p class="hub-desc">这个站从域名到上线的每一步建设和改进。</p>
+    </a>
+    <a class="hub-card" href="{{ "/tools/" | relURL }}">
+      <span class="hub-icon">🧰</span>
+      <div class="hub-name">工具箱</div>
+      <p class="hub-desc">浏览器里直接用的小工具，数据不出本机。</p>
+    </a>
+    <a class="hub-card" href="{{ "/fun/" | relURL }}">
+      <span class="hub-icon">🎲</span>
+      <div class="hub-name">趣味天地</div>
+      <p class="hub-desc">趣味测评、赛博算命，以及好玩但没用的一切。</p>
+    </a>
+  </div>
 
-<div class="container wide">
-  {{ if $posts }}
+  {{ $pages := where site.RegularPages "Draft" false }}
+  {{ if $pages }}
   <div class="section-head">
     <h2 class="section-title">最近更新</h2>
-    <a class="more-link" href="{{ "/posts/" | relURL }}">全部文章 →</a>
   </div>
   <ul class="cards">
-    {{ range first 9 $posts }}{{ partial "post-card.html" . }}{{ end }}
+    {{ range first 9 $pages }}{{ partial "post-card.html" . }}{{ end }}
   </ul>
-  {{ else }}
-  <p class="empty">还没有文章。执行 <code>hugo new content posts/first.md</code> 开始写第一篇。</p>
   {{ end }}
 </div>
 {{ end }}

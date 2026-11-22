@@ -138,7 +138,7 @@ curl -I https://你的域名/
 
 ```toml
 baseURL = "https://你的域名/"     # 结尾的斜杠不能少
-title = "海边小屋"                 # 站点名
+title = "蔚来实验室"               # 站点名
 [params]
   author = "你的名字"
   description = "一句话介绍"
