@@ -79,6 +79,7 @@ def collect(day):
     refs = Counter()
     bots = Counter()
     probes = Counter()
+    probe_total = 0
     hours = Counter()
 
     for path in log_files():
@@ -106,6 +107,7 @@ def collect(day):
 
                 if PROBE_RE.search(path_only):
                     probes[path_only[:60]] += 1
+                    probe_total += 1
                     continue
                 if BOT_RE.search(ua):
                     bots[os.path.basename(path_only) or path_only] += 1
@@ -129,6 +131,7 @@ def collect(day):
         "refs": refs.most_common(8),
         "bots": bots.most_common(6),
         "probes": probes.most_common(6),
+        "probe_total": probe_total,
         "hourly": [hours.get(h, 0) for h in range(24)],
     }
 
@@ -309,7 +312,7 @@ footer{{color:var(--muted);font-size:12px;margin-top:22px;text-align:center}}
 
 <section><h2>外部来源</h2><table>{ref_rows()}</table></section>
 
-<section><h2>探测与扫描（已被拦截或 404）</h2><table>{probe_rows()}</table></section>
+<section><h2>探测与扫描 · 共 {cur.get("probe_total", 0)} 次（前 6 名）</h2><table>{probe_rows()}</table></section>
 
 <section><h2>最近 14 天</h2>
 <table><tr><td class="p muted">日期</td><td class="n muted">请求</td><td class="n muted">真实</td><td class="n muted">IP</td><td class="n muted">阅读</td><td class="n muted">读者</td></tr>
@@ -337,7 +340,7 @@ def main(argv):
     summary = (
         f"[{cur['date']}] 请求 {cur['total']}（真实 {cur['human']} / {cur['human_ips']} IP）"
         f"｜阅读 {pv} pv / {uv} uv｜热门：{top_pages}"
-        f"｜探测类请求 {sum(n for _, n in cur['probes'])} 次"
+        f"｜探测类请求 {cur.get('probe_total', 0)} 次"
     )
     print(summary)
 
