@@ -542,6 +542,8 @@ bash /tmp/ai-digest-src/install-ai-digest.sh /tmp/ai-digest-src
 LLM_API_KEY=ms-xxxx             # 必填，魔搭令牌（modelscope.cn/my/myaccesstoken）
 LLM_BASE_URL=https://api-inference.modelscope.cn/v1
 LLM_MODEL=ZhipuAI/GLM-5.2
+LLM_FALLBACKS=Qwen/Qwen3.5-122B-A10B,deepseek-ai/DeepSeek-V4.1-Flash-1017   # 可选，额度耗尽时换模型
+LLM_RETRY_SLEEP=20              # 可选，429/5xx 重试前的等待秒数
 GITHUB_TOKEN=ghp_xxx            # 可选，GitHub API 限额更高
 CF_API_TOKEN=xxx                # 可选，发布后自动清 Cloudflare 缓存
 AI_RSSHUB_URLS=...              # 可选，RSSHub 源（如推特列表）
@@ -549,12 +551,24 @@ AI_RSSHUB_URLS=...              # 可选，RSSHub 源（如推特列表）
 
 LLM 是 OpenAI 兼容接口，默认走**魔搭 API-Inference**（每天 2000 次免费请求）；想换 DeepSeek 官方就把 `LLM_BASE_URL` 改成 `https://api.deepseek.com/v1`、`LLM_MODEL` 改成 `deepseek-chat`，令牌用 `sk-` 开头的官方 key。
 
+### 额度耗尽时怎么办
+
+魔搭的免费额度按天给，跑到凌晨那会儿如果当天额度已经用完，接口会返回 **429**。早期版本遇到这种情况直接退化成「纯聚合版」——文章发出来了，但没有一句点评，看起来像是流水线出了问题。现在改成三层兜底：
+
+1. **同模型重试**：429 / 5xx 先等 `LLM_RETRY_SLEEP`（默认 20 秒）再试一次，多数限流是瞬时的；
+2. **换模型**：`LLM_MODEL` 之后还有 `LLM_FALLBACKS`（默认 `Qwen/Qwen3.5-122B-A10B,deepseek-ai/DeepSeek-V4.1-Flash-1017`），命中 429 就顺着链往下换，直到有一个模型把正文写出来；
+3. **补写**：三个模型全挂才发聚合版，正文开头会显式写「本期 AI 点评没生成」并留下 `<!-- digest:fallback -->` 标记；`digest-repair.timer` 在 03:17 / 06:17 / 09:17 / 12:17 / 15:17 / 18:17 / 21:17 各跑一次 `--repair`，检测到标记就重新抓取、重新总结、覆盖当天文章并重新发布；已经有点评的日子它看一眼文件就退出（几十毫秒）。
+
+> 判断一个模型能不能用，别只看 `/v1/models` 里有没有——`deepseek-ai/DeepSeek-V4.1-Flash` 在列表里但会报 `has no provider supported`。推理型模型（GLM-5.2、DeepSeek-V4.1-Flash-1017）还要注意 `max_tokens` 把思维链也算进去，正文被截断时脚本会判为「正文过短」并继续换下一个模型。
+
 日常操作：
 
 ```bash
 systemctl list-timers ai-digest.timer          # 看下次运行时间
 systemctl start ai-digest                      # 手动跑一次（journalctl -u ai-digest 看日志）
 python3 /usr/local/bin/ai-digest.py --dry-run  # 只抓取+挑选，不发布
+python3 /usr/local/bin/ai-digest.py --repair   # 只补写当天缺点评的那篇
+systemctl start digest-repair                  # 两条流水线一起补写
 ```
 
 文章落在 `content/ai/ai-daily-YYYY-MM-DD.md`，标题「AI 前哨日报 · YYYY-MM-DD」，标签 `AI`/`日报`；同一天重复运行会跳过（文件已存在），全源抓空则当天不生成。

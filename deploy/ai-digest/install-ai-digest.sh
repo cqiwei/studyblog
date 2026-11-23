@@ -19,6 +19,8 @@ install -m 644 "$SRC_DIR/ai-digest.service" /etc/systemd/system/
 install -m 644 "$SRC_DIR/ai-digest.timer" /etc/systemd/system/
 install -m 644 "$SRC_DIR/lab-trending.service" /etc/systemd/system/
 install -m 644 "$SRC_DIR/lab-trending.timer" /etc/systemd/system/
+install -m 644 "$SRC_DIR/digest-repair.service" /etc/systemd/system/
+install -m 644 "$SRC_DIR/digest-repair.timer" /etc/systemd/system/
 
 say "hugo"
 if [ ! -x /usr/local/bin/hugo ] || ! /usr/local/bin/hugo version | grep -q "$HUGO_VERSION"; then
@@ -70,8 +72,8 @@ install -d -m 755 /var/lib/ai-digest
 
 say "systemd"
 systemctl daemon-reload
-systemctl enable --now ai-digest.timer lab-trending.timer
-systemctl list-timers ai-digest.timer lab-trending.timer --no-pager | head -8
+systemctl enable --now ai-digest.timer lab-trending.timer digest-repair.timer
+systemctl list-timers ai-digest.timer lab-trending.timer digest-repair.timer --no-pager | head -8
 
 say "完成。凭据写在这里：/etc/ai-digest.conf（600）"
 # 幂等：已填过凭据就不覆盖

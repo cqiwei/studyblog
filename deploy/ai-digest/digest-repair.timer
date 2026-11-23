@@ -1,0 +1,10 @@
+[Unit]
+Description=定时重试补写 AI 点评（额度恢复后自动修正当天文章）
+
+[Timer]
+OnCalendar=*-*-* 03,06,09,12,15,18,21:17:00 Asia/Shanghai
+AccuracySec=2min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

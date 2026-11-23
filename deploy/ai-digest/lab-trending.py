@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 
 CONF_FILE = "/etc/ai-digest.conf"
 DRY_RUN = "--dry-run" in sys.argv
+REPAIR = "--repair" in sys.argv
 TOP_N = int(os.environ.get("TRENDING_TOP_N", "10"))
 
 REPO_DIR = os.environ.get("DIGEST_REPO", "/opt/blogrepo")
@@ -33,6 +34,11 @@ CURRENT_LINK = "/var/www/blog/current"
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "") or os.environ.get("DEEPSEEK_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api-inference.modelscope.cn/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "ZhipuAI/GLM-5.2")
+# 主模型额度用光（429）时按顺序换模型，别直接退化成没有点评的列表版
+LLM_FALLBACKS = os.environ.get(
+    "LLM_FALLBACKS", "Qwen/Qwen3.5-122B-A10B,deepseek-ai/DeepSeek-V4.1-Flash-1017")
+LLM_RETRY_SLEEP = int(os.environ.get("LLM_RETRY_SLEEP", "20"))
+FALLBACK_MARK = "<!-- trending:fallback -->"
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
 CF_ZONE_NAME = os.environ.get("CF_ZONE_NAME", "aiqivy.com")
 
@@ -66,6 +72,9 @@ def load_conf():
         LLM_API_KEY=os.environ.get("LLM_API_KEY", "") or os.environ.get("DEEPSEEK_API_KEY", ""),
         LLM_BASE_URL=os.environ.get("LLM_BASE_URL", "https://api-inference.modelscope.cn/v1"),
         LLM_MODEL=os.environ.get("LLM_MODEL", "ZhipuAI/GLM-5.2"),
+        LLM_FALLBACKS=os.environ.get(
+            "LLM_FALLBACKS", "Qwen/Qwen3.5-122B-A10B,deepseek-ai/DeepSeek-V4.1-Flash-1017"),
+        LLM_RETRY_SLEEP=int(os.environ.get("LLM_RETRY_SLEEP", "20")),
         CF_API_TOKEN=os.environ.get("CF_API_TOKEN", ""),
         CF_ZONE_NAME=os.environ.get("CF_ZONE_NAME", "aiqivy.com"),
     )
@@ -141,30 +150,40 @@ def build_material(repos):
     return "\n".join(lines)
 
 
-def subprocess_run_llm(material):
+def llm_models():
+    out = []
+    for name in [LLM_MODEL] + LLM_FALLBACKS.split(","):
+        name = name.strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
+SYSTEM_PROMPT = (
+    "你是博客「灵光一现」栏目的编辑，负责写 GitHub Trending 每日点评。"
+    "只根据提供的材料写作，不编造功能、数字或没有依据的评价；"
+    "点评要具体、有用，说清楚它是什么、能拿来干什么、适合谁。")
+
+USER_PROMPT = (
+    "下面是今天 GitHub Trending（日榜）排名靠前的仓库材料，"
+    "含排名、简介、语言、总星数、今日新增星数和 README 摘录。"
+    "请写一篇点评文章：\n"
+    "1. 开头一段 2-3 句的今日趋势观察（归纳共同主题，不用逐个点名）。\n"
+    "2. 按排名顺序逐个仓库，每节格式严格如下：\n"
+    "### {排名}. [{owner}/{repo}](仓库链接)\n"
+    "`{语言} · 总星 {总星数} · 今日 +{今日新增}`\n"
+    "然后写 2-4 句用途点评：是什么、能拿来干什么、适合谁用；"
+    "README 里有明确依据时才提成熟度/注意事项。\n"
+    "3. 不要写结尾总结段，不要编造。材料：\n\n")
+
+
+def _chat(model, messages, max_tokens=12000, timeout=300):
     payload = {
-        "model": LLM_MODEL,
+        "model": model,
         "temperature": 0.5,
         # 推理型模型会把思维链算进 max_tokens，给足余量防止正文被截断
-        "max_tokens": 12000,
-        "messages": [
-            {"role": "system",
-             "content": "你是博客「灵光一现」栏目的编辑，负责写 GitHub Trending 每日点评。"
-                        "只根据提供的材料写作，不编造功能、数字或没有依据的评价；"
-                        "点评要具体、有用，说清楚它是什么、能拿来干什么、适合谁。"},
-            {"role": "user",
-             "content": (
-                 "下面是今天 GitHub Trending（日榜）排名靠前的仓库材料，"
-                 "含排名、简介、语言、总星数、今日新增星数和 README 摘录。"
-                 "请写一篇点评文章：\n"
-                 "1. 开头一段 2-3 句的今日趋势观察（归纳共同主题，不用逐个点名）。\n"
-                 "2. 按排名顺序逐个仓库，每节格式严格如下：\n"
-                 "### {排名}. [{owner}/{repo}](仓库链接)\n"
-                 "`{语言} · 总星 {总星数} · 今日 +{今日新增}`\n"
-                 "然后写 2-4 句用途点评：是什么、能拿来干什么、适合谁用；"
-                 "README 里有明确依据时才提成熟度/注意事项。\n"
-                 "3. 不要写结尾总结段，不要编造。材料：\n\n" + material)},
-        ],
+        "max_tokens": max_tokens,
+        "messages": messages,
     }
     req = urllib.request.Request(
         LLM_BASE_URL.rstrip("/") + "/chat/completions",
@@ -172,20 +191,51 @@ def subprocess_run_llm(material):
         headers={"Content-Type": "application/json",
                  "Authorization": f"Bearer {LLM_API_KEY}"},
         method="POST")
-    with urllib.request.urlopen(req, timeout=300) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read())
     choice = data["choices"][0]
     content = (choice["message"].get("content") or "").strip()
     finish = choice.get("finish_reason", "")
     if len(content) < 200:  # 推理 token 吃光预算时正文会只剩个 "##"
         raise ValueError(
-            f"LLM 正文过短（finish={finish}, content_len={len(content)}），疑似被截断")
+            f"正文过短（finish={finish}, content_len={len(content)}），疑似被截断")
     return content
 
 
+def subprocess_run_llm(material):
+    """按模型链依次尝试，返回 (正文, 实际使用的模型名)。"""
+    messages = [{"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": USER_PROMPT + material}]
+    errors = []
+    for model in llm_models():
+        for attempt in (1, 2):
+            try:
+                content = _chat(model, messages)
+                log(f"  [{model}] 第 {attempt} 次尝试成功，正文 {len(content)} 字")
+                return content, model
+            except urllib.error.HTTPError as exc:
+                try:
+                    detail = exc.read().decode("utf-8", "replace")[:120]
+                except Exception:
+                    detail = ""
+                errors.append(f"{model} HTTP {exc.code} {detail}")
+                log(f"  [{model}] 第 {attempt} 次失败：HTTP {exc.code} {detail}")
+                if exc.code in (429, 500, 502, 503, 504) and attempt == 1:
+                    time.sleep(LLM_RETRY_SLEEP)
+                    continue
+                break
+            except (ValueError, urllib.error.URLError, TimeoutError, OSError) as exc:
+                errors.append(f"{model} {type(exc).__name__}: {exc}")
+                log(f"  [{model}] 第 {attempt} 次失败：{exc}")
+                break
+    raise RuntimeError("所有模型都失败：" + " ｜ ".join(errors))
+
+
 def aggregate_fallback(repos):
-    """没配 LLM key 或总结失败时的纯列表版。"""
-    parts = ["> 本期为纯聚合版（点评生成失败），仅列出趋势数据。\n"]
+    """没配 LLM key 或点评失败时的纯列表版（带标记，后面会自动补写点评）。"""
+    parts = [FALLBACK_MARK,
+             "> **本期的用途点评没生成**（总结接口额度耗尽或临时故障），"
+             "下面是趋势数据；系统会在几小时内自动重试，成功后替换成本文。\n"]
     for rank, r in enumerate(repos, 1):
         parts.append(
             f"### {rank}. [{r['path']}]({r['url']})\n"
@@ -201,11 +251,11 @@ def git(*args):
                           capture_output=True, text=True, check=True)
 
 
-def publish(body, repos):
+def publish(body, repos, force=False):
     filename = f"git-trending-{TODAY}.md"
     rel = f"content/lab/{filename}"
     path = os.path.join(REPO_DIR, rel)
-    if os.path.exists(path):
+    if os.path.exists(path) and not force:
         log(f"{rel} 已存在，跳过发布（避免覆盖）")
         return
 
@@ -220,8 +270,10 @@ def publish(body, repos):
     log(f"文章已写入 {rel}")
 
     git("add", rel)
+    msg = (f"灵光一现：GitHub Trending 每日点评 {TODAY}（补点评）" if force
+           else f"灵光一现：GitHub Trending 每日点评 {TODAY}")
     git("-c", "user.name=ai-digest", "-c", "user.email=digest@aiqivy.com",
-        "commit", "-m", f"灵光一现：GitHub Trending 每日点评 {TODAY}")
+        "commit", "-m", msg)
     git("pull", "--rebase", "origin", "main")
     git("push", "origin", "main")
     log("git push 完成")
@@ -264,6 +316,20 @@ def main():
     load_conf()
     if DRY_RUN:
         log("== dry-run：只抓取和取 README，不调用 LLM 不发布 ==")
+
+    rel = f"content/lab/git-trending-{TODAY}.md"
+    path = os.path.join(REPO_DIR, rel)
+    if REPAIR:
+        if not os.path.exists(path):
+            log("今天还没有趋势点评，跳过补写")
+            return 0
+        with open(path, encoding="utf-8") as fh:
+            existing = fh.read()
+        if FALLBACK_MARK not in existing and "纯聚合版" not in existing:
+            log("今天的趋势点评已生成，跳过补写")
+            return 0
+        log("== repair：检测到纯列表版，尝试补写点评 ==")
+
     repos = fetch_trending()
     log(f"GitHub Trending 抓到 {len(repos)} 个仓库")
     if not repos:
@@ -283,18 +349,23 @@ def main():
         return 0
 
     material = build_material(repos)
+    body = None
     if LLM_API_KEY:
         try:
-            body = subprocess_run_llm(material)
-            log(f"LLM 点评完成（{LLM_MODEL} @ {LLM_BASE_URL}）")
+            body, used = subprocess_run_llm(material)
+            log(f"LLM 点评完成（{used} @ {LLM_BASE_URL}）")
         except Exception as exc:
-            log(f"WARN LLM 失败，改发聚合版: {exc}")
-            body = aggregate_fallback(repos)
+            log(f"WARN LLM 失败: {exc}")
     else:
-        log("WARN 未配置 LLM_API_KEY，发纯聚合版")
+        log("WARN 未配置 LLM_API_KEY")
+
+    if body is None:
+        if REPAIR:
+            log("补写失败，保留列表版，等下一次重试")
+            return 0
         body = aggregate_fallback(repos)
 
-    publish(body, repos)
+    publish(body, repos, force=REPAIR)
     return 0
 
 

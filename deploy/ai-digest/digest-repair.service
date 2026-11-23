@@ -1,0 +1,12 @@
+[Unit]
+Description=补写缺失的 AI 点评（聚合版 → 点评版）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Nice=10
+EnvironmentFile=-/etc/ai-digest.conf
+ExecStart=/usr/bin/python3 /usr/local/bin/ai-digest.py --repair
+ExecStart=/usr/bin/python3 /usr/local/bin/lab-trending.py --repair
+TimeoutStartSec=2400

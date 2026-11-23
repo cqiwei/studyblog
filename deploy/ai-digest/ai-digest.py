@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 
 CONF_FILE = "/etc/ai-digest.conf"
 DRY_RUN = "--dry-run" in sys.argv
+REPAIR = "--repair" in sys.argv
 
 REPO_DIR = os.environ.get("DIGEST_REPO", "/opt/blogrepo")
 SEEN_DB = os.environ.get("DIGEST_SEEN_DB", "/var/lib/ai-digest/seen.db")
@@ -42,6 +43,12 @@ CURRENT_LINK = "/var/www/blog/current"
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "") or os.environ.get("DEEPSEEK_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api-inference.modelscope.cn/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "ZhipuAI/GLM-5.2")
+# 主模型额度用光（429）时按顺序换模型，别直接退化成没有点评的聚合版
+LLM_FALLBACKS = os.environ.get(
+    "LLM_FALLBACKS", "Qwen/Qwen3.5-122B-A10B,deepseek-ai/DeepSeek-V4.1-Flash-1017")
+LLM_RETRY_SLEEP = int(os.environ.get("LLM_RETRY_SLEEP", "20"))
+# 聚合版正文里的标记，--repair 靠它认出「这篇还没点评」
+FALLBACK_MARK = "<!-- digest:fallback -->"
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
 CF_ZONE_NAME = os.environ.get("CF_ZONE_NAME", "aiqivy.com")
@@ -92,6 +99,9 @@ def load_conf():
         LLM_API_KEY=os.environ.get("LLM_API_KEY", "") or os.environ.get("DEEPSEEK_API_KEY", ""),
         LLM_BASE_URL=os.environ.get("LLM_BASE_URL", "https://api-inference.modelscope.cn/v1"),
         LLM_MODEL=os.environ.get("LLM_MODEL", "ZhipuAI/GLM-5.2"),
+        LLM_FALLBACKS=os.environ.get(
+            "LLM_FALLBACKS", "Qwen/Qwen3.5-122B-A10B,deepseek-ai/DeepSeek-V4.1-Flash-1017"),
+        LLM_RETRY_SLEEP=int(os.environ.get("LLM_RETRY_SLEEP", "20")),
         GITHUB_TOKEN=os.environ.get("GITHUB_TOKEN", ""),
         CF_API_TOKEN=os.environ.get("CF_API_TOKEN", ""),
         RSSHUB_URLS=[u for u in os.environ.get("AI_RSSHUB_URLS", "").split(",") if u],
@@ -385,31 +395,42 @@ def build_material(items):
 
 def deepseek_summarize(items):
     material = build_material(items)
-    return subprocess_run_llm(material)
+    return run_llm(material, system_prompt=DAILY_SYSTEM, user_prompt=DAILY_USER)
 
 
-def subprocess_run_llm(material):
+DAILY_SYSTEM = (
+    "你是一位中文科技编辑，负责给「AI 前哨日报」写内容。"
+    "只根据提供的材料写作，不编造任何事实；"
+    "输出纯 markdown 正文（不要 front matter、不要开场白）；"
+    "每条信息保留原文链接。")
+
+DAILY_USER = (
+    "下面是过去 36 小时收集到的 AI 信息。请写成一篇日报，结构：\n"
+    "## 今日看点\n3-5 条一句话要点（挑最有价值的）\n"
+    "## 媒体动态\n（量子位/TechCrunch/The Verge/HN）\n"
+    "## 论文速览\n（arXiv，每条一两句人话概括）\n"
+    "## 开源热门\n（GitHub 项目）\n\n"
+    "格式：**标题** — 一两句中文摘要。([来源](链接))\n"
+    "没有内容的板块直接省略。材料：\n\n")
+
+
+def llm_models():
+    """主模型 + 兜底模型，去重保序。"""
+    out = []
+    for name in [LLM_MODEL] + LLM_FALLBACKS.split(","):
+        name = name.strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
+def _chat(model, messages, max_tokens, timeout=300):
     payload = {
-        "model": LLM_MODEL,
+        "model": model,
         "temperature": 0.5,
         # 推理型模型会把思维链算进 max_tokens，给足余量防止正文被截断
-        "max_tokens": 12000,
-        "messages": [
-            {"role": "system",
-             "content": "你是一位中文科技编辑，负责给「AI 前哨日报」写内容。"
-                        "只根据提供的材料写作，不编造任何事实；"
-                        "输出纯 markdown 正文（不要 front matter、不要开场白）；"
-                        "每条信息保留原文链接。"},
-            {"role": "user",
-             "content": (
-                 "下面是过去 36 小时收集到的 AI 信息。请写成一篇日报，结构：\n"
-                 "## 今日看点\n3-5 条一句话要点（挑最有价值的）\n"
-                 "## 媒体动态\n（量子位/TechCrunch/The Verge/HN）\n"
-                 "## 论文速览\n（arXiv，每条一两句人话概括）\n"
-                 "## 开源热门\n（GitHub 项目）\n\n"
-                 "格式：**标题** — 一两句中文摘要。([来源](链接))\n"
-                 "没有内容的板块直接省略。材料：\n\n" + material)},
-        ],
+        "max_tokens": max_tokens,
+        "messages": messages,
     }
     req = urllib.request.Request(
         LLM_BASE_URL.rstrip("/") + "/chat/completions",
@@ -417,23 +438,57 @@ def subprocess_run_llm(material):
         headers={"Content-Type": "application/json",
                  "Authorization": f"Bearer {LLM_API_KEY}"},
         method="POST")
-    with urllib.request.urlopen(req, timeout=300) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read())
     choice = data["choices"][0]
     content = (choice["message"].get("content") or "").strip()
     finish = choice.get("finish_reason", "")
     if len(content) < 200:  # 推理 token 吃光预算时正文会只剩个 "##"
         raise ValueError(
-            f"LLM 正文过短（finish={finish}, content_len={len(content)}），疑似被截断")
+            f"正文过短（finish={finish}, content_len={len(content)}），疑似被截断")
     return content
 
 
+def run_llm(material, system_prompt, user_prompt, max_tokens=12000):
+    """按模型链依次尝试：429/5xx 先退避重试一次，再换下一个模型。
+
+    返回 (正文, 实际使用的模型名)。全部失败抛 RuntimeError。
+    """
+    messages = [{"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt + material}]
+    errors = []
+    for model in llm_models():
+        for attempt in (1, 2):
+            try:
+                content = _chat(model, messages, max_tokens)
+                log(f"  [{model}] 第 {attempt} 次尝试成功，正文 {len(content)} 字")
+                return content, model
+            except urllib.error.HTTPError as exc:
+                try:
+                    detail = exc.read().decode("utf-8", "replace")[:120]
+                except Exception:
+                    detail = ""
+                errors.append(f"{model} HTTP {exc.code} {detail}")
+                log(f"  [{model}] 第 {attempt} 次失败：HTTP {exc.code} {detail}")
+                if exc.code in (429, 500, 502, 503, 504) and attempt == 1:
+                    time.sleep(LLM_RETRY_SLEEP)
+                    continue
+                break
+            except (ValueError, urllib.error.URLError, TimeoutError, OSError) as exc:
+                errors.append(f"{model} {type(exc).__name__}: {exc}")
+                log(f"  [{model}] 第 {attempt} 次失败：{exc}")
+                break
+    raise RuntimeError("所有模型都失败：" + " ｜ ".join(errors))
+
+
 def aggregate_fallback(items):
-    """没配 LLM key 时的纯聚合版。"""
+    """没配 LLM key 或总结失败时的纯聚合版（带标记，后面会自动补写点评）。"""
     by_src = {}
     for item in items:
         by_src.setdefault(item["source"], []).append(item)
-    parts = ["> 本期为纯聚合版（未配置总结 API），仅列出原始信息。\n"]
+    parts = [FALLBACK_MARK,
+             "> **本期 AI 点评没生成**（总结接口额度耗尽或临时故障），"
+             "下面是原始清单；系统会在几小时内自动重试，成功后替换成本文。\n"]
     for src, group in by_src.items():
         parts.append(f"\n## {src}\n")
         for item in group:
@@ -449,11 +504,11 @@ def git(*args, cwd=REPO_DIR):
                           capture_output=True, text=True, check=True)
 
 
-def publish(body, items):
+def publish(body, items, force=False):
     filename = f"ai-daily-{TODAY}.md"
     rel = f"content/ai/{filename}"
     path = os.path.join(REPO_DIR, rel)
-    if os.path.exists(path):
+    if os.path.exists(path) and not force:
         log(f"{rel} 已存在，跳过发布（避免覆盖）")
         return
 
@@ -472,8 +527,9 @@ def publish(body, items):
     log(f"文章已写入 {rel}")
 
     git("add", rel)
+    msg = f"AI 前哨日报 {TODAY}（补 AI 点评）" if force else f"AI 前哨日报 {TODAY}（{len(items)} 条）"
     git("-c", "user.name=ai-digest", "-c", "user.email=digest@aiqivy.com",
-        "commit", "-m", f"AI 前哨日报 {TODAY}（{len(items)} 条）")
+        "commit", "-m", msg)
     git("pull", "--rebase", "origin", "main")
     git("push", "origin", "main")
     log("git push 完成")
@@ -497,14 +553,14 @@ def purge_cache():
         req = urllib.request.Request(
             f"https://api.cloudflare.com/client/v4/zones?name={CF_ZONE_NAME}",
             headers={"Authorization": f"Bearer {CF_API_TOKEN}"})
-        zone_id = json.loads(urllib.request.urlopen(req, timeout=20))["result"][0]["id"]
+        zone_id = json.loads(urllib.request.urlopen(req, timeout=20).read())["result"][0]["id"]
         req = urllib.request.Request(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/purge_cache",
             data=json.dumps({"purge_everything": True}).encode(),
             headers={"Authorization": f"Bearer {CF_API_TOKEN}",
                      "Content-Type": "application/json"},
             method="POST")
-        json.loads(urllib.request.urlopen(req, timeout=30))
+        json.loads(urllib.request.urlopen(req, timeout=30).read())
         log("Cloudflare 缓存已清理")
     except Exception as exc:
         log(f"WARN purge 失败（不影响发布）: {exc}")
@@ -516,6 +572,20 @@ def main():
     load_conf()
     if DRY_RUN:
         log("== dry-run：只抓取和挑选，不写库不发布 ==")
+
+    rel = f"content/ai/ai-daily-{TODAY}.md"
+    path = os.path.join(REPO_DIR, rel)
+    if REPAIR:
+        if not os.path.exists(path):
+            log("今天还没有日报，跳过补写")
+            return
+        with open(path, encoding="utf-8") as fh:
+            existing = fh.read()
+        if FALLBACK_MARK not in existing and "纯聚合版" not in existing:
+            log("今天的日报已经有 AI 点评，跳过补写")
+            return
+        log("== repair：检测到聚合版日报，尝试补写 AI 点评 ==")
+
     items = (fetch_feeds() + fetch_hackernews() + fetch_arxiv() + fetch_github())
     log(f"共抓到 {len(items)} 条（窗口 {WINDOW_HOURS}h）")
     if not items:
@@ -529,8 +599,12 @@ def main():
                      if i.get("no_window")
                      or not i.get("published")
                      or NOW - i["published"] <= timedelta(hours=WINDOW_HOURS)]
-        fresh = dedup(in_window, conn)
-        log(f"窗口内 {len(in_window)} 条，去重后剩 {len(fresh)} 条")
+        if REPAIR:
+            fresh = in_window  # 补写时不能用 seen.db 去重，否则全被过滤掉
+            log(f"补写模式：窗口内 {len(fresh)} 条全部参与挑选")
+        else:
+            fresh = dedup(in_window, conn)
+            log(f"窗口内 {len(in_window)} 条，去重后剩 {len(fresh)} 条")
         if not fresh:
             log("全部都已见过，今天不生成日报")
             return
@@ -546,19 +620,25 @@ def main():
             print(build_material(picked))
             return
 
+        body = None
         if LLM_API_KEY:
             try:
-                body = deepseek_summarize(picked)
-                log(f"LLM 总结完成（{LLM_MODEL} @ {LLM_BASE_URL}）")
+                body, used = deepseek_summarize(picked)
+                log(f"LLM 总结完成（{used} @ {LLM_BASE_URL}）")
             except Exception as exc:
-                log(f"WARN LLM 失败，改发聚合版: {exc}")
-                body = aggregate_fallback(picked)
+                log(f"WARN LLM 失败: {exc}")
         else:
-            log("WARN 未配置 LLM_API_KEY，发纯聚合版")
+            log("WARN 未配置 LLM_API_KEY")
+
+        if body is None:
+            if REPAIR:
+                log("补写失败，保留聚合版，等下一次重试")
+                return
             body = aggregate_fallback(picked)
 
-        mark_seen(conn, picked)
-        publish(body, picked)
+        if not REPAIR:
+            mark_seen(conn, picked)
+        publish(body, picked, force=REPAIR)
     finally:
         conn.close()
 
